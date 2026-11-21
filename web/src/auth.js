@@ -147,3 +147,10 @@ export async function startAuth() {
   if (!session) await loginFlow('login', link?.error ? `That link did not work: ${link.error}` : '');
   else if (!(await getToken())) await loginFlow('login', 'Please sign in again.');
 }
+
+/** Hosted: change the password of the signed-in person. */
+export async function changePassword(password) {
+  const t = await getToken();
+  if (!t) throw new Error('Please sign in again.');
+  await auth('PUT', '/user', { password }, t);
+}

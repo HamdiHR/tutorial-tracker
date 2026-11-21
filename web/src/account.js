@@ -2,7 +2,7 @@
 import { h, toast } from './dom.js';
 import { api } from './api.js';
 import { S } from './state.js';
-import { signOut } from './auth.js';
+import { signOut, changePassword } from './auth.js';
 import { refreshOverview } from './sidebar.js';
 
 export function accountCards(sec) {
@@ -12,6 +12,7 @@ export function accountCards(sec) {
     sec('Account',
       h('p', {}, h('strong', {}, me.email || ''), ' ', h('span', { class: 'chip' }, me.role || 'member')),
       h('div', { class: 'row gap' }, h('button', { class: 'btn', onClick: signOut }, 'Sign out'))),
+    passwordCard(sec),
     sec('Starting point',
       h('p', { class: 'muted' }, start + '.'),
       h('p', { class: 'muted small' }, 'Changing it resets your ticked steps (notes and edits stay) and applies the new choice.'),
@@ -51,4 +52,17 @@ function peopleCard(sec) {
   return sec('People',
     h('p', { class: 'muted' }, 'Only invited emails can create an account. Each person has their own progress, notes, board and timeline.'),
     form, msg, list);
+}
+
+function passwordCard(sec) {
+  const msg = h('p', { class: 'muted small', role: 'status' });
+  const a = h('input', { class: 'text-input', type: 'password', minlength: 8, required: true, autocomplete: 'new-password', placeholder: 'New password (8+ characters)', 'aria-label': 'New password' });
+  const b = h('input', { class: 'text-input', type: 'password', minlength: 8, required: true, autocomplete: 'new-password', placeholder: 'Repeat new password', 'aria-label': 'Repeat new password' });
+  const form = h('form', { class: 'row gap wrap', onSubmit: async (e) => {
+    e.preventDefault();
+    if (a.value !== b.value) { msg.textContent = 'The two passwords do not match.'; return; }
+    try { await changePassword(a.value); a.value = b.value = ''; msg.textContent = 'Password changed.'; }
+    catch (err) { msg.textContent = err.message; }
+  } }, a, b, h('button', { class: 'btn', type: 'submit' }, 'Change password'));
+  return sec('Password', form, msg);
 }

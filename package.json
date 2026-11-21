@@ -16,12 +16,13 @@
     "build:single": "node scripts/build.cjs --single",
     "perf": "node scripts/perf-baseline.cjs",
     "build:content": "node --disable-warning=ExperimentalWarning scripts/build-content.js",
-    "build:hosted": "node scripts/build.cjs && node --disable-warning=ExperimentalWarning scripts/build-content.js",
+    "build:hosted": "node scripts/migrate-hosted.js && node scripts/build.cjs && node --disable-warning=ExperimentalWarning scripts/build-content.js",
     "test:hosted": "bash hosted/test/sql-test.sh && node --disable-warning=ExperimentalWarning --test test/hosted.test.js"
   },
   "devDependencies": {
     "esbuild": "^0.28.0",
     "highlight.js": "^11.11.0",
-    "marked": "^18.0.0"
+    "marked": "^18.0.0",
+    "pg": "^8.13.0"
   }
 }
