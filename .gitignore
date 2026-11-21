@@ -1,0 +1,10 @@
+node_modules/
+data/
+export/
+public/
+hosted/content.db
+.vercel/
+.env*
+target/
+gen/
+desktop/src-tauri/target/

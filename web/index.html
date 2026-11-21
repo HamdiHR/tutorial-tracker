@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tutorial Tracker</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23131720'/%3E%3Cpath d='M9 10h14M9 16h14M9 22h8' stroke='%237aa2ff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+<script>try{var t=localStorage.getItem('theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="app">
+  <aside id="side" aria-label="Navigation"></aside>
+  <div id="scrim"></div>
+  <div id="content">
+    <header id="topbar">
+      <button id="menu-btn" class="icon-btn" aria-label="Menu">☰</button>
+      <span class="grow"></span>
+      <button id="top-search" class="btn sm">Search <kbd>Ctrl K</kbd></button>
+      <button id="theme-btn" class="icon-btn" aria-label="Toggle theme" title="Toggle light / dark"></button>
+    </header>
+    <main id="view"></main>
+  </div>
+</div>
+<script src="app.js" defer></script>
+</body>
+</html>

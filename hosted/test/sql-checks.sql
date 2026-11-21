@@ -1,0 +1,16 @@
+DO $$ BEGIN BEGIN INSERT INTO auth.users(email) VALUES ('stranger@x.com'); RAISE EXCEPTION 'SHOULD FAIL'; EXCEPTION WHEN SQLSTATE 'P0001' THEN RAISE NOTICE 'PASS uninvited email rejected'; END; END $$;
+INSERT INTO tt_allowed_emails VALUES ('b@x.com','member');
+INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','HamdiIrahal@gmail.com'),('00000000-0000-0000-0000-000000000002','b@x.com');
+SELECT 'profiles', email, role FROM tt_profiles ORDER BY 2;
+SET ROLE authenticated; SET request.jwt.claim.sub = '00000000-0000-0000-0000-000000000001';
+SELECT tt_apply('{"steps":{"set":[{"t":"S1-T01","k":"a","done":true,"done_at":"2026-11-21T10:00:00Z","note":"hi"},{"t":"S1-T01","k":"b","done":true}]},"tickets":{"set":[{"t":"S1-T01","ov":"doing","note":""}]},"meta":{"set":{"plan":"{}"}},"activity":[{"type":"done","t":"S1-T01","k":"a"}],"badges":[{"key":"b1","family":"f","tier":1}],"versions":[{"t":"S1-T01","k":"a","title":"x","body":"y"}],"drift":{"set":[{"t":"S1-T01","k":"a","h":"abc","state":"fixed","note":"n"}]}}') AS applied;
+SELECT 'user1 state', jsonb_array_length(s->'steps') steps, jsonb_array_length(s->'tickets') tickets, jsonb_array_length(s->'activity') acts, jsonb_array_length(s->'versions') vers, jsonb_array_length(s->'badges') badges, s->'meta' meta, s->'profile'->>'role' role FROM (SELECT tt_state() s) x;
+SELECT tt_apply('{"steps":{"del":[{"t":"S1-T01","k":"b"}]},"tickets":{"del":["S1-T01"]},"meta":{"del":["plan"]},"drift":{"del":[{"t":"S1-T01","k":"a","h":"abc"}]}}') AS deleted;
+SELECT 'user1 after delete', jsonb_array_length(s->'steps') steps, jsonb_array_length(s->'tickets') tickets, jsonb_array_length(s->'drift') drift, s->'meta' meta FROM (SELECT tt_state() s) x;
+SET request.jwt.claim.sub = '00000000-0000-0000-0000-000000000002';
+SELECT 'user2 sees user1 rows?', jsonb_array_length(tt_state()->'steps') AS steps, tt_state()->'profile'->>'email' AS own_profile;
+DO $$ BEGIN BEGIN INSERT INTO tt_user_steps(user_id,ticket_id,step_key) VALUES ('00000000-0000-0000-0000-000000000001','S1','a'); RAISE EXCEPTION 'SHOULD FAIL'; EXCEPTION WHEN insufficient_privilege OR check_violation THEN RAISE NOTICE 'PASS cross-user write blocked'; END; END $$;
+DO $$ BEGIN BEGIN PERFORM 1 FROM tt_allowed_emails; RAISE EXCEPTION 'SHOULD FAIL'; EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'PASS allowed_emails not readable'; END; END $$;
+DO $$ BEGIN BEGIN UPDATE tt_profiles SET role='owner'; RAISE EXCEPTION 'SHOULD FAIL'; EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'PASS no self-promotion'; END; END $$;
+RESET ROLE; SET ROLE anon;
+DO $$ BEGIN BEGIN PERFORM tt_state(); RAISE EXCEPTION 'SHOULD FAIL'; EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'PASS anon cannot call tt_state'; END; END $$;
