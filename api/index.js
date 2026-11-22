@@ -33,7 +33,16 @@ export default async function handler(req, res) {
       if (!String(req.headers['content-type'] || '').startsWith('application/json')) throw new HttpError(415, 'Use application/json');
       body = await readJson(req);
     }
-    const out = await app.handle(method, req.url, req.headers, body);
+    // vercel.json rewrites /api/* to /api/index?__p=<rest>; rebuild the original URL from it
+    let url = req.url || '/';
+    const u = new URL(url, 'http://x');
+    if (u.searchParams.has('__p')) {
+      const rest = u.searchParams.get('__p').replace(/^\/+/, '');
+      u.searchParams.delete('__p');
+      const qs = u.searchParams.toString();
+      url = '/api/' + rest + (qs ? '?' + qs : '');
+    }
+    const out = await app.handle(method, url, req.headers, body);
     send(out.status, out.json);
   } catch (e) {
     if (e instanceof HttpError) return send(e.status, { error: e.message });

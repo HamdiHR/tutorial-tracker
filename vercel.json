@@ -5,8 +5,9 @@
   "buildCommand": "npm run build:hosted",
   "outputDirectory": "public",
   "functions": {
-    "api/[...path].js": { "includeFiles": "hosted/content.db", "maxDuration": 30 }
+    "api/index.js": { "includeFiles": "hosted/content.db", "maxDuration": 30 }
   },
+  "rewrites": [{ "source": "/api/:path*", "destination": "/api/index?__p=:path*" }],
   "headers": [
     { "source": "/assets/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }] },
     { "source": "/(.*)", "headers": [
