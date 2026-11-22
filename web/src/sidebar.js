@@ -60,7 +60,7 @@ export function renderSidebar() {
 
   const scroll = root.querySelector('.tree')?.scrollTop ?? 0;
   root.replaceChildren(
-    h('div', { class: 'brand' }, h('span', { class: 'logo' }, '▤'), h('strong', {}, 'Tutorial Tracker')),
+    h('div', { class: 'brand' }, h('span', { class: 'logo' }, '▤'), h('strong', {}, 'Tutorial Tracker'), h('span', { class: 'ver', title: `Version ${__APP_VERSION__}` }, 'v' + __APP_VERSION__.split('.').slice(0, 2).join('.'))),
     player,
     h('button', { class: 'search-btn', onClick: openSearch }, h('span', {}, 'Search'), h('kbd', {}, 'Ctrl K')),
     nav,

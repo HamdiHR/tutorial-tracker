@@ -149,7 +149,7 @@ export function createApi(db, cfg) {
     if (!plan) return null;
     const d = new Date();
     const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const sch = computeSchedule(plan, sprintsForPlan(), today);
+    const sch = computeSchedule(plan, sprintsForPlan(), today, { daily: dailySteps() });
     const t = sch.sprints.flatMap((r) => r.schedule).find((x) => x.id === id);
     return { team: sch.team.map(({ id: mid, name, color }) => ({ id: mid, name, color })), ticket: t ? { member: t.member, due: t.due, start: t.start, manual: t.manual } : null };
   }
@@ -328,25 +328,44 @@ export function createApi(db, cfg) {
   /** The minimum computeSchedule needs, without the heavier parts of overview(). */
   const sprintsForPlan = () => {
     const tickets = allTickets();
+    // Real completion days from the activity log (ticks only; bulk "mark done" has no date and is shown as assumed).
+    const lastDone = new Map(q(`SELECT ticket_id id, max(date(ts,'localtime')) d, min(date(ts,'localtime')) f FROM activity WHERE type='done' AND ticket_id IS NOT NULL GROUP BY ticket_id`).all().map((r) => [r.id, r]));
     return q('SELECT id, ord, title FROM sprints ORDER BY ord').all().map((sp) => {
       const items = tickets.filter((t) => t.sprint_id === sp.id);
       const real = items.filter((t) => t.kind === 'ticket' && !t.deferred);
+      const dates = real.filter((t) => t.status === 'done').map((t) => lastDone.get(t.id)?.d).filter(Boolean).sort();
+      const firsts = real.map((t) => lastDone.get(t.id)?.f).filter(Boolean).sort();
       return {
+        doneOn: dates.length === real.filter((t) => t.status === 'done').length && dates.length ? dates.at(-1) : null,
+        firstOn: firsts[0] || null,
         id: sp.id, title: sp.title,
         total: real.reduce((a, t) => a + t.total, 0), done: real.reduce((a, t) => a + t.done, 0),
         ticketsTotal: real.length, ticketsDone: real.filter((t) => t.status === 'done').length,
         complete: real.length > 0 && real.every((t) => t.status === 'done'),
-        items: items.map((t) => ({ id: t.id, title: t.title, kind: t.kind, status: t.status, total: t.total, done: t.done, deferred: t.deferred })),
+        items: items.map((t) => ({ id: t.id, title: t.title, kind: t.kind, status: t.status, total: t.total, done: t.done, deferred: t.deferred, doneOn: t.status === 'done' ? lastDone.get(t.id)?.d || null : null })),
       };
     });
   };
-  const planOut = (plan, today) => ({ plan: plan && cleanPlan(plan), schedule: plan ? computeSchedule(plan, sprintsForPlan(), today) : null, today });
-  const keepManual = (body) => (body.manual === undefined ? { ...body, manual: loadPlan()?.manual } : body);
+  const dailySteps = () => Object.fromEntries(q(`SELECT date(ts,'localtime') d, sum(type='done') - sum(type='undone') n FROM activity WHERE type IN ('done','undone') GROUP BY d`).all().map((r) => [r.d, Math.max(0, r.n)]));
+  const stepsDone = () => sprintsForPlan().reduce((a, x) => a + x.done, 0);
+  const sched = (plan, today) => computeSchedule(plan, sprintsForPlan(), today, { daily: dailySteps() });
+  const planOut = (plan, today) => ({ plan: plan && cleanPlan(plan), schedule: plan ? sched(plan, today) : null, today, progress: { stepsDone: stepsDone(), sprintsDone: sprintsForPlan().filter((x) => x.complete).length } });
+  /** Keeps manual overrides, and fixes the "steps done before the anchor" baseline (new anchor, or an explicit re-plan). */
+  const keepManual = (body) => {
+    const prev = loadPlan();
+    const out = body.manual === undefined ? { ...body, manual: prev?.manual } : { ...body };
+    if (out.anchor === 'here') {
+      if (body.rebase || prev?.anchor !== 'here' || !Number.isInteger(prev?.baseSteps)) out.baseSteps = stepsDone();
+      else out.baseSteps = prev.baseSteps;
+    }
+    delete out.rebase;
+    return out;
+  };
   const planOrBad = (body) => { try { return cleanPlan(body); } catch (e) { throw bad(e.message); } };
   on('GET', '/api/plan', ({ query }) => planOut(loadPlan(), todayOf(query)));
   on('POST', '/api/plan/preview', ({ body, query }) => {
     const plan = planOrBad(keepManual(body));
-    return { schedule: computeSchedule(plan, sprintsForPlan(), todayOf(query)) };
+    return { schedule: sched(plan, todayOf(query)) };
   });
   on('PUT', '/api/plan', ({ body, query }) => {
     const plan = planOrBad(keepManual(body));

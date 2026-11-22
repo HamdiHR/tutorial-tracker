@@ -13,8 +13,14 @@ const STATE = { done: ['Done', 'done'], ahead: ['Ahead', 'done'], 'on-track': ['
 /** The questions. `initial` is a saved plan or null. Calls onSave(plan) after saving. */
 function planForm(initial, onSave, onCancel) {
   const sprints = S.overview.sprints.filter((sp) => sp.ticketsTotal);
+  const done = sprints.filter((sp) => sp.ticketsDone === sp.ticketsTotal);
+  const current = sprints.find((sp) => sp.ticketsDone < sp.ticketsTotal);
+  const hasProgress = sprints.some((sp) => sp.ticketsDone > 0 || sp.done > 0);
   const st = {
-    startDate: initial?.startDate || nextMonday(),
+    anchor: initial?.anchor || (hasProgress ? 'here' : 'start'),
+    targetEnd: initial?.targetEnd || '',
+    rebase: false,
+    startDate: initial?.startDate || (hasProgress ? todayStr() : nextMonday()),
     workDays: new Set(initial?.workDays || [1, 2, 3, 4, 5]),
     sprintDays: initial?.sprintDays || 5,
     perSprint: { ...(initial?.perSprint || {}) },
@@ -27,6 +33,7 @@ function planForm(initial, onSave, onCancel) {
 
   const same = (a, b) => a.size === b.size && [...a].every((x) => b.has(x));
   const plan = () => ({
+    anchor: st.anchor, targetEnd: st.anchor === 'here' && st.targetEnd ? st.targetEnd : null, rebase: st.rebase,
     startDate: st.startDate, workDays: [...st.workDays], sprintDays: st.sprintDays, perSprint: st.perSprint, daysOff: st.daysOff,
     team: st.team.map((m, i) => ({ id: m.id, name: st.team.length === 1 ? m.name || 'You' : m.name || `Member ${i + 1}`, color: m.color, workDays: m.workDays && !same(m.workDays, st.workDays) ? [...m.workDays] : null, daysOff: m.daysOff })),
   });
@@ -34,11 +41,31 @@ function planForm(initial, onSave, onCancel) {
     try {
       const { schedule } = await api.planPreview(plan(), todayStr());
       err.hidden = true;
-      preview.replaceChildren(h('span', {}, '→ ', schedule.team.length > 1 ? `team of ${schedule.team.length} · ` : '', plural(schedule.sprints.length, 'sprint'), ' · ', plural(schedule.workDaysTotal, 'working day'), ` (≈ ${plural(schedule.weeks, 'week')}) · finishes `), h('strong', {}, fmtDate(schedule.plannedEnd, true)));
+      const fit = schedule.fit;
+      preview.replaceChildren(schedule.historySprints ? h('div', { class: 'muted small' }, `✓ ${plural(schedule.historySprints, 'finished sprint')} kept as history, not rescheduled`) : null, fit ? h('div', { class: fit.ok ? 'small' : 'small late' }, fit.ok ? `🎯 Fits your target of ${fmtDate(fit.targetEnd, true)} (needs ≈ ${fit.neededPace} steps per working day)` : `⚠ ${fmtDate(fit.targetEnd, true)} is too tight: you would need ≈ ${fit.neededPace} steps per working day`) : null, h('span', {}, '→ ', schedule.team.length > 1 ? `team of ${schedule.team.length} · ` : '', plural(schedule.sprints.length, 'sprint'), ' · ', plural(schedule.workDaysTotal, 'working day'), ` (≈ ${plural(schedule.weeks, 'week')}) · finishes `), h('strong', {}, fmtDate(schedule.plannedEnd, true)));
     } catch (e) { preview.replaceChildren(h('span', { class: 'muted' }, e.message)); }
   }, 250);
 
-  const start = h('input', { type: 'date', value: st.startDate, onInput: (e) => { st.startDate = e.target.value; refresh(); } });
+  const start = h('input', { type: 'date', value: st.startDate, onInput: (e) => { st.startDate = e.target.value; st.rebase = true; refresh(); } });
+  const targetIn = h('input', { type: 'date', value: st.targetEnd, onInput: (e) => { st.targetEnd = e.target.value; refresh(); } });
+  const anchorBox = h('div', { class: 'tl-field' });
+  const startQ = h('strong', {});
+  const startHint = h('span', { class: 'muted small' });
+  const targetField = h('div', { class: 'tl-field' }, h('div', { class: 'tl-q' }, h('strong', {}, 'Want to finish by a certain date? (optional)'), h('span', { class: 'muted small' }, 'We spread the remaining sprints over the days available and tell you if it is unrealistic.')), h('div', { class: 'row wrap gap' }, targetIn, h('button', { type: 'button', class: 'btn sm', onClick: () => { targetIn.value = ''; st.targetEnd = ''; refresh(); } }, 'Clear')));
+  const paintAnchor = () => {
+    const here = st.anchor === 'here';
+    startQ.textContent = here ? 'When do you pick up the unfinished work?' : 'When does your first sprint begin?';
+    startHint.textContent = here ? 'The first working day on or after this date is when the unfinished work starts. Finished sprints stay in the past.' : 'The first working day on or after this date is day 1.';
+    targetField.hidden = !here;
+    if (!hasProgress) return anchorBox.replaceChildren();
+    const opt = (v, title, desc) => h('label', { class: 'tl-opt' + (st.anchor === v ? ' on' : '') }, h('input', { type: 'radio', name: 'anchor', checked: st.anchor === v, onChange: () => { st.anchor = v; st.rebase = true; paintAnchor(); refresh(); } }), h('span', {}, h('strong', {}, title), h('span', { class: 'muted small' }, desc)));
+    anchorBox.replaceChildren(
+      h('div', { class: 'tl-q' }, h('strong', {}, 'You already have progress'), h('span', { class: 'muted small' }, `${plural(done.length, 'sprint')} finished${current ? `, ${sprintLabel(current)} in progress (${current.ticketsDone}/${current.ticketsTotal} tickets)` : ''}. How should the calendar treat it?`)),
+      h('div', { class: 'tl-opts' },
+        opt('here', 'Continue from where I am', 'Finished work stays as history. Only what is left is scheduled, starting on the date below.'),
+        opt('start', 'Lay everything out from sprint 1', 'The old behaviour: every sprint gets a slot from the start date, finished or not.')));
+  };
+  paintAnchor();
   const lenNum = h('input', { type: 'number', min: 1, max: 60, class: 'num', value: unit === 'weeks' ? st.sprintDays / st.workDays.size : st.sprintDays });
   const lenUnit = h('select', {}, h('option', { value: 'days' }, 'working days'), h('option', { value: 'weeks' }, 'weeks'));
   lenUnit.value = unit;
@@ -111,7 +138,9 @@ function planForm(initial, onSave, onCancel) {
     e.preventDefault();
     try { const out = await api.planSave(plan(), todayStr()); onSave(out); } catch (x) { err.textContent = x.message; err.hidden = false; }
   } },
-    field('When does your first sprint begin?', 'The first working day on or after this date is day 1.', start),
+    anchorBox,
+    h('div', { class: 'tl-field' }, h('div', { class: 'tl-q' }, startQ, startHint), h('div', { class: 'row wrap gap' }, start, h('button', { type: 'button', class: 'btn sm', onClick: () => { start.value = st.startDate = todayStr(); st.rebase = true; refresh(); } }, 'Today'))),
+    targetField,
     h('div', { class: 'tl-field' }, h('div', { class: 'tl-q' }, h('strong', {}, 'How many people work on it?'), h('span', { class: 'muted small' }, 'Tickets are split between them automatically, balanced by workload. You can reassign any ticket later.')), h('div', { class: 'row wrap gap' }, teamNum), teamBox),
     field('How long should each sprint take?', 'Default for every sprint. You can tune single sprints below.', lenNum, lenUnit),
     field('Which days do you work on it?', 'Your real days, not the whole week.', ...dayBtns),
@@ -123,8 +152,8 @@ function planForm(initial, onSave, onCancel) {
 }
 
 function gantt(sch) {
-  const t0 = sch.sprints[0].start;
-  const t1 = sch.sprints.at(-1).end;
+  const t0 = sch.sprints.map((r) => r.start).sort()[0];
+  const t1 = sch.sprints.map((r) => r.end).sort().at(-1);
   const span = Math.max(1, dayDiff(t0, t1) + 1);
   const x = (d) => Math.min(100, Math.max(0, (dayDiff(t0, d) / span) * 100));
   const today = sch.today.date;
@@ -291,7 +320,7 @@ function sprintTable(sch) {
         multi ? avatar(teamOf(sch, t.member), 'sm') : null, h('span', { class: 'muted small' }, 'due ' + fmtDate(t.due)))));
     const head = h('button', { class: 'tl-sp', 'aria-expanded': openSet.has(r.id), onClick: () => { body.hidden = !body.hidden; body.hidden ? openSet.delete(r.id) : openSet.add(r.id); head.setAttribute('aria-expanded', !body.hidden); } },
       h('span', { class: 'chip' }, 'S' + r.id), h('span', { class: 'grow ell' }, sprintName(r)),
-      h('span', { class: 'muted small tl-dates' }, `${fmtDate(r.start)} → ${fmtDate(r.end)} · ${r.days}d`),
+      h('span', { class: 'muted small tl-dates', title: r.assumed ? 'No real completion date was recorded (marked done in bulk), so this date is an estimate.' : '' }, r.history ? (r.assumed ? 'finished earlier' : `finished ${fmtDate(r.end)}`) : `${fmtDate(r.start)} → ${fmtDate(r.end)} · ${r.days}d`),
       h('span', { class: 'muted small tl-pct' }, `${r.actualPct}% / plan ${r.expectedPct}%`),
       h('span', { class: 'st-pill ' + tone }, label));
     return h('div', { class: 'tl-item' }, head, body);
@@ -354,7 +383,7 @@ export async function timelineView(root) {
     h('div', { class: 'sec-head' }, h('h1', { class: 'page-title' }, 'Timeline'), h('div', { class: 'row gap' }, h('a', { class: 'btn', href: '#/board' }, '▦ Board'), h('button', { class: 'btn', onClick: edit }, '✎ Edit plan'), h('button', { class: 'link', onClick: reset }, 'Remove plan'))),
     h('section', { class: 'stats tl-stats' },
       tile('🏁', 'Planned finish', fmtDate(sch.plannedEnd, true), `${multi ? `team of ${sch.team.length} · ` : ''}${plural(sch.sprints.length, 'sprint')} · ${plural(sch.workDaysTotal, 'working day')} · ≈ ${plural(sch.weeks, 'week')}`),
-      tile('📈', 'At your pace', allDone ? 'Finished 🎉' : sch.projectedEnd ? fmtDate(sch.projectedEnd, true) : 'Not enough data yet', allDone ? '' : sch.projectedEnd ? (projDiff > 0 ? `${plural(projDiff, 'day')} later than planned` : projDiff < 0 ? `${plural(-projDiff, 'day')} earlier than planned` : 'right on plan') : 'needs a few working days of progress', projDiff > 0 ? 'late' : ''),
+      tile('📈', 'At your pace', allDone ? 'Finished 🎉' : sch.projectedEnd ? fmtDate(sch.projectedEnd, true) : 'Not enough data yet', allDone ? '' : sch.projectedEnd ? ((projDiff > 0 ? `${plural(projDiff, 'day')} later than planned` : projDiff < 0 ? `${plural(-projDiff, 'day')} earlier than planned` : 'right on plan') + (sch.forecast?.fast && sch.forecast?.slow && sch.forecast.fast !== sch.forecast.slow ? ` · range ${fmtDate(sch.forecast.fast)} – ${fmtDate(sch.forecast.slow)}` : '')) : 'needs a few working days of progress', projDiff > 0 ? 'late' : ''),
       tile(worst === 'behind' || worst === 'overdue' ? '🐢' : worst === 'ahead' ? '🚀' : '🎯', 'Today vs plan', delta === 0 ? 'On plan' : `${delta > 0 ? '+' : ''}${delta} steps`, `${td.actualSteps} done · plan says ${td.expectedSteps}`, worst),
       tile('📌', td.isWorkday ? 'Due by today' : 'Due so far', plural(td.dueTickets, 'ticket'), td.overdue ? `${td.overdue} overdue` : td.dueTickets ? 'due today or earlier' : 'nothing pending', td.overdue ? 'late' : '')),
     view,

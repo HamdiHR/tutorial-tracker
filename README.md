@@ -119,6 +119,10 @@ The server only listens on `127.0.0.1`, rejects unknown Host headers (DNS-rebind
 - Settings > Performance log lists any slow moment (long task, slow click, slow copy) measured on your machine. It stays local.
 - `node scripts/perf-baseline.cjs [cpuSlowdown]` re-runs the measurements (needs Playwright and a saved plan).
 
+### Smart timeline dates (v0.39.1)
+
+If you already have finished sprints, the timeline form now offers **Continue from where I am** (default): finished work stays as history, a sprint that is partly done only schedules what is left, and the start date is when the unfinished work begins. Optional **target end date** spreads the remaining sprints over the available days and warns when it is unrealistic. Real completion dates come from your activity log (work marked done in bulk shows as "finished earlier"). The header shows a forecast range from your recent pace. The old behaviour is one click away (**Lay everything out from sprint 1**). The version is shown as a badge next to the title in the sidebar. Plan for the rest of v0.4: `PLAN-v0.4.md`.
+
 ### Hosting on Vercel
 
 See `HOSTING.md` (v0.39): Vercel + Supabase Postgres, email/password sign-in, invite-only, per-person progress. The local app and desktop shell are unchanged.

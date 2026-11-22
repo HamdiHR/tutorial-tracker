@@ -9,6 +9,7 @@ const zlib = require('node:zlib');
 const root = path.resolve(__dirname, '..');
 const out = path.join(root, 'public');
 const single = process.argv.includes('--single');
+const APP_VERSION = require('../package.json').version;
 const target = ['chrome105', 'edge105', 'firefox110', 'safari16'];
 
 const rm = (p) => fs.rmSync(p, { recursive: true, force: true });
@@ -22,7 +23,7 @@ const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e
 
 (async () => {
   fs.mkdirSync(out, { recursive: true });
-  const common = { absWorkingDir: root, bundle: true, minify: !process.argv.includes('--dev'), legalComments: 'none', logLevel: 'warning', target, metafile: true };
+  const common = { absWorkingDir: root, bundle: true, minify: !process.argv.includes('--dev'), legalComments: 'none', logLevel: 'warning', target, metafile: true, define: { __APP_VERSION__: JSON.stringify(APP_VERSION) } };
   let html = fs.readFileSync(path.join(root, 'web/index.html'), 'utf8');
   rm(path.join(out, 'assets'));
   for (const f of ['app.js', 'app.css', 'index.html']) for (const x of ['', '.br', '.gz']) rm(path.join(out, f + x));

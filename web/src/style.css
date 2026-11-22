@@ -61,6 +61,7 @@ code { font-family: var(--mono); }
 .grow-bar { flex: 1; min-width: 80px; } .row { display: flex; align-items: center; gap: 10px; } .row.gap { gap: 10px; } .row.wrap { flex-wrap: wrap; }
 
 /* sidebar */
+.ver { margin-left: auto; font: 600 10.5px/1 var(--mono); letter-spacing: .04em; padding: 4px 8px; border-radius: 999px; color: var(--accent); background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 22%, transparent), color-mix(in srgb, var(--accent) 6%, transparent)); border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 6%, transparent); white-space: nowrap; cursor: default; user-select: none; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 4px 6px 12px; font-size: 15px; } .logo { color: var(--accent); font-size: 20px; }
 .search-btn { width: 100%; display: flex; justify-content: space-between; align-items: center; background: var(--panel2); border: 1px solid var(--line); color: var(--muted); border-radius: 8px; padding: 8px 10px; cursor: pointer; margin-bottom: 10px; }
 .search-btn:hover { border-color: var(--accent); }
@@ -315,6 +316,8 @@ mark { background: color-mix(in srgb, var(--doing) 35%, transparent); color: inh
 
 /* ---------- timeline (v0.3) ---------- */
 .tl-wizard { max-width: 860px; } .tl-form { display: grid; gap: 18px; margin-top: 6px; }
+.tl-opts { display: grid; gap: 8px; } .tl-opt { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line, #2a3142); border-radius: 10px; cursor: pointer; }
+.tl-opt span { display: flex; flex-direction: column; gap: 2px; } .tl-opt.on { border-color: var(--accent, #7aa2ff); background: color-mix(in srgb, var(--accent, #7aa2ff) 10%, transparent); } .tl-opt input { margin-top: 4px; }
 .tl-field { display: grid; gap: 8px; } .tl-q { display: flex; flex-direction: column; gap: 2px; }
 .tl-form input[type=date], .tl-form input[type=number], .tl-form select { background: var(--panel2); color: var(--text); border: 1px solid var(--line2); border-radius: 10px; padding: 8px 10px; font: inherit; color-scheme: dark light; }
 .tl-form input.num { width: 84px; }

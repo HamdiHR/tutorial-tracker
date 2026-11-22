@@ -12,7 +12,7 @@ export const validDate = (s) => typeof s === 'string' && DATE_RE.test(s) && fmt(
 export const addDays = (s, n) => fmt(toMs(s) + n * DAY);
 export const dayOfWeek = (s) => new Date(toMs(s)).getUTCDay(); // 0 = Sunday
 
-export const DEFAULT_PLAN = { startDate: null, workDays: [1, 2, 3, 4, 5], sprintDays: 5, perSprint: {}, daysOff: [], team: [], manual: {} };
+export const DEFAULT_PLAN = { anchor: 'start', baseSteps: 0, targetEnd: null, startDate: null, workDays: [1, 2, 3, 4, 5], sprintDays: 5, perSprint: {}, daysOff: [], team: [], manual: {} };
 
 const PALETTE = ['#7aa2ff', '#3fb27f', '#e3a93b', '#c084fc', '#f472b6', '#22d3ee', '#fb923c', '#a3e635', '#f87171', '#94a3b8', '#2dd4bf', '#facc15'];
 const cleanDayList = (v) => [...new Set((Array.isArray(v) ? v : []).map(Number))].filter((d) => Number.isInteger(d) && d >= 0 && d <= 6).sort();
@@ -66,7 +66,13 @@ export function cleanPlan(input) {
     if (n !== sprintDays) perSprint[String(id).slice(0, 12)] = n;
   }
   const team = cleanTeam(p.team);
-  return { startDate: p.startDate, workDays, sprintDays, perSprint, daysOff: cleanDates(p.daysOff, 'Days off'), team, manual: cleanManual(p.manual, team) };
+  // anchor 'start': every sprint is laid out from the start date (original behaviour).
+  // anchor 'here': finished work is history; the start date is where the *unfinished* work begins.
+  const anchor = p.anchor === 'here' ? 'here' : 'start';
+  const baseSteps = Number.isInteger(p.baseSteps) && p.baseSteps >= 0 ? p.baseSteps : 0;
+  const targetEnd = p.targetEnd == null || p.targetEnd === '' ? null : p.targetEnd;
+  if (targetEnd !== null && (!validDate(targetEnd) || targetEnd < p.startDate)) throw new Error('The target end date must be a valid date on or after the start date.');
+  return { anchor, baseSteps, targetEnd, startDate: p.startDate, workDays, sprintDays, perSprint, daysOff: cleanDates(p.daysOff, 'Days off'), team, manual: cleanManual(p.manual, team) };
 }
 
 /** Checker for one person: their own weekdays (or the plan's) minus shared and personal days off. */
@@ -90,7 +96,7 @@ function takeWorkdays(isWork, from, count) {
  * A sprint window runs on the team calendar (a day counts if anyone works). Tickets are split between people by
  * workload (steps per available day), keep tutorial order per person, and are spread over that person's own days.
  */
-export function computeSchedule(planIn, sprints, today) {
+export function computeSchedule(planIn, sprints, today, extra = {}) {
   const plan = cleanPlan(planIn);
   if (!validDate(today)) throw new Error('Invalid today');
   const members = plan.team.map((m) => ({ ...m, works: checker(plan, m) }));
@@ -98,17 +104,48 @@ export function computeSchedule(planIn, sprints, today) {
   const tdy = today;
   const tally = members.map(() => ({ tickets: 0, steps: 0, stepsDone: 0, days: 0 }));
 
+  const here = plan.anchor === 'here';
+  const histDay = addDays(plan.startDate, -1); // where finished work with no known date is drawn
+  const live = sprints.filter((x) => x.ticketsTotal && !(here && x.complete));
+  // Target end date: spread the available working days over the unfinished sprints by remaining steps.
+  let targetDays = null;
+  let targetAvail = 0;
+  if (here && plan.targetEnd && live.length) {
+    targetAvail = takeWorkdays(isTeamWork, plan.startDate, MAX_DAYS).filter((d) => d <= plan.targetEnd).length;
+    const wt = live.map((x) => Math.max(1, x.total - x.done));
+    const sum = wt.reduce((a, b) => a + b, 0);
+    targetDays = new Map(live.map((x, i) => [x.id, Math.max(1, Math.round((Math.max(1, targetAvail) * wt[i]) / sum))]));
+  }
   let cursor = plan.startDate;
   const rows = [];
+  let activeSeen = false;
   for (const sp of sprints) {
     if (!sp.ticketsTotal) continue;
-    const days = plan.perSprint[sp.id] ?? plan.sprintDays;
+    if (here && sp.complete) {
+      // History: finished before the anchor. Uses real completion dates when the activity log has them.
+      const real = sp.items.filter((t) => t.kind === 'ticket' && !t.deferred);
+      const hist = real.map((t) => {
+        const d = t.doneOn || sp.doneOn || histDay;
+        return { id: t.id, title: t.title, status: t.status, member: members.find((m) => m.id === plan.manual[t.id]?.member)?.id || members[0].id, due: d, start: d, steps: t.total || 0, done: t.done || 0, manual: { member: false, due: false }, history: true, assumed: !(t.doneOn || sp.doneOn) };
+      });
+      const ds = hist.map((t) => t.due).sort();
+      rows.push({ id: sp.id, title: sp.title, start: sp.firstOn && sp.firstOn <= ds[0] ? sp.firstOn : ds[0], end: ds.at(-1), days: 0, tickets: real.length, ticketsDone: sp.ticketsDone, steps: sp.total, stepsDone: sp.done, expectedPct: 100, actualPct: 100, state: 'done', history: true, assumed: hist.every((t) => t.assumed), schedule: hist, load: members.map((m) => ({ member: m.id, tickets: 0, steps: 0, done: 0, days: 0 })) });
+      continue;
+    }
+    let days = plan.perSprint[sp.id] ?? targetDays?.get(sp.id) ?? plan.sprintDays;
+    // First unfinished sprint that is already under way: only its remaining work needs days.
+    const isActive = here && !activeSeen;
+    activeSeen = true;
+    const partial = isActive && sp.done > 0 && sp.total > 0;
+    if (partial && plan.perSprint[sp.id] == null && !targetDays) days = Math.max(1, Math.min(days, Math.ceil((days * (sp.total - sp.done)) / sp.total)));
     const wd = takeWorkdays(isTeamWork, cursor, days);
     const start = wd[0];
     const end = wd[wd.length - 1];
     cursor = addDays(end, 1);
 
-    const tickets = sp.items.filter((t) => t.kind === 'ticket' && !t.deferred);
+    const allReal = sp.items.filter((t) => t.kind === 'ticket' && !t.deferred);
+    const finished = partial ? allReal.filter((t) => t.status === 'done') : [];
+    const tickets = partial ? allReal.filter((t) => t.status !== 'done') : allReal;
     const w = (t) => Math.max(1, t.total || 0);
     const avail = members.map((m) => wd.filter(m.works));
     const load = members.map(() => 0);
@@ -152,19 +189,24 @@ export function computeSchedule(planIn, sprints, today) {
         dated.set(t.id, { id: t.id, title: t.title, status: t.status, member: m.id, due, start: st, steps: t.total || 0, done: t.done || 0, manual: { member: !!man.member, due: !!man.due } });
       }
     });
-    const schedule = tickets.map((t) => dated.get(t.id));
+    const histOf = new Map(finished.map((t) => {
+      const d = t.doneOn || histDay;
+      return [t.id, { id: t.id, title: t.title, status: t.status, member: members.find((m) => m.id === plan.manual[t.id]?.member)?.id || members[0].id, due: d, start: d, steps: t.total || 0, done: t.done || 0, manual: { member: false, due: false }, history: true, assumed: !t.doneOn }];
+    }));
+    const schedule = allReal.map((t) => dated.get(t.id) || histOf.get(t.id)).filter(Boolean);
+    const baseFrac = partial ? finished.reduce((a, t) => a + (t.total || 0), 0) / sp.total : 0;
 
     members.forEach((_, i) => {
-      const mine = schedule.filter((t) => t.member === members[i].id);
+      const mine = schedule.filter((t) => t.member === members[i].id && !t.history);
       tally[i].tickets += mine.length;
       tally[i].steps += mine.reduce((a, t) => a + t.steps, 0);
       tally[i].stepsDone += mine.reduce((a, t) => a + t.done, 0);
       tally[i].days += avail[i].length;
     });
 
-    const n = tickets.length;
+    const n = allReal.length;
     const elapsed = wd.filter((d) => d <= tdy).length;
-    const expected = elapsed / days;
+    const expected = baseFrac + (1 - baseFrac) * Math.min(1, elapsed / days);
     const actual = sp.total ? sp.done / sp.total : 0;
     let state;
     if (sp.complete) state = 'done';
@@ -174,10 +216,10 @@ export function computeSchedule(planIn, sprints, today) {
     else if (actual - expected >= -0.1) state = 'on-track';
     else state = 'behind';
     const loadOut = members.map((m, i) => {
-      const mine = schedule.filter((t) => t.member === m.id);
+      const mine = schedule.filter((t) => t.member === m.id && !t.history);
       return { member: m.id, tickets: mine.length, steps: mine.reduce((a, t) => a + t.steps, 0), done: mine.reduce((a, t) => a + t.done, 0), days: avail[i].length };
     });
-    rows.push({ id: sp.id, title: sp.title, start, end, days, tickets: n, ticketsDone: sp.ticketsDone, steps: sp.total, stepsDone: sp.done, expectedPct: Math.round(expected * 100), actualPct: Math.round(actual * 100), state, schedule, load: loadOut });
+    rows.push({ id: sp.id, title: sp.title, start, end, days, tickets: n, ticketsDone: sp.ticketsDone, steps: sp.total, stepsDone: sp.done, expectedPct: Math.round(expected * 100), actualPct: Math.round(actual * 100), state, schedule, load: loadOut, partial });
   }
 
   const totalSteps = rows.reduce((a, r) => a + r.steps, 0);
@@ -186,15 +228,28 @@ export function computeSchedule(planIn, sprints, today) {
   const plannedEnd = rows.length ? rows.at(-1).end : null;
 
   const elapsedAll = takeWorkdays(isTeamWork, plan.startDate, MAX_DAYS).filter((d) => d <= tdy).length;
+  const doneSince = Math.max(0, doneSteps - (here ? plan.baseSteps : 0));
+  const remaining = Math.max(0, totalSteps - doneSteps);
+  const startFrom = takeWorkdays(isTeamWork, tdy < plan.startDate ? plan.startDate : addDays(tdy, 1), 1)[0];
+  const finishAt = (pace) => (pace > 0 ? takeWorkdays(isTeamWork, startFrom, Math.min(Math.ceil(remaining / pace), MAX_DAYS)).at(-1) ?? null : null);
+  // Recent velocity: steps ticked per working day over the last 7 / 14 working days (needs the activity log).
+  const daily = extra.daily || {};
+  const recent = (n) => {
+    const days = takeWorkdays(isTeamWork, addDays(tdy, -40), 60).filter((d) => d <= tdy).slice(-n);
+    const sum = days.reduce((a, d) => a + (daily[d] || 0), 0);
+    return days.length >= Math.min(n, 3) && sum > 0 ? sum / days.length : null;
+  };
   let projectedEnd = null;
   let pace = null;
+  let forecast = null;
   if (doneSteps >= totalSteps && totalSteps) projectedEnd = 'done';
-  else if (elapsedAll >= 3 && doneSteps > 0) {
-    pace = doneSteps / elapsedAll;
-    const need = Math.ceil((totalSteps - doneSteps) / pace);
-    const from = takeWorkdays(isTeamWork, tdy < plan.startDate ? plan.startDate : addDays(tdy, 1), 1)[0];
-    projectedEnd = takeWorkdays(isTeamWork, from, Math.min(need, MAX_DAYS)).at(-1) ?? null;
+  else if (elapsedAll >= 3 && doneSince > 0) {
+    pace = doneSince / elapsedAll;
+    projectedEnd = finishAt(pace);
+    const paces = [pace, recent(7), recent(14)].filter((x) => x > 0);
+    forecast = { fast: finishAt(Math.max(...paces)), expected: projectedEnd, slow: finishAt(Math.min(...paces)), pace7: recent(7), pace14: recent(14) };
   }
+  const fit = here && plan.targetEnd ? { targetEnd: plan.targetEnd, days: targetAvail, neededPace: targetAvail ? Math.round((remaining / targetAvail) * 10) / 10 : null, ok: !!rows.length && rows.at(-1).end <= plan.targetEnd } : null;
 
   const all = rows.flatMap((r) => r.schedule);
   const dueNow = all.filter((t) => t.due <= tdy && t.status !== 'done');
@@ -205,6 +260,10 @@ export function computeSchedule(planIn, sprints, today) {
     sprints: rows,
     plannedEnd,
     projectedEnd,
+    forecast,
+    fit,
+    anchor: plan.anchor,
+    historySprints: rows.filter((r) => r.history).length,
     pace,
     today: {
       date: tdy,
