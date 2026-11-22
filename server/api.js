@@ -218,6 +218,15 @@ export function createApi(db, cfg) {
   on('GET', '/api/config', () => ({ hosted: false, version: cfg.version }));
   on('GET', '/api/overview', () => overview());
 
+  // ---- saved board filters (per account): [{id, name, f:{sprint, who, q, view, group, hideDone}}]
+  const cleanViews = (v) => (Array.isArray(v) ? v : []).map((x) => ({
+    id: String(x?.id || '').replace(/[^a-z0-9]/gi, '').slice(0, 16) || Math.random().toString(36).slice(2, 10),
+    name: String(x?.name || '').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 40),
+    f: Object.fromEntries(['sprint', 'who', 'q', 'view', 'group'].map((k) => [k, String(x?.f?.[k] ?? '').slice(0, 80)]).concat([['hideDone', x?.f?.hideDone ? 1 : 0]])),
+  })).filter((x) => x.name).slice(0, 30);
+  on('GET', '/api/views', () => { let v = []; try { v = JSON.parse(getMeta(db, 'ui:views') || '[]'); } catch {} return cleanViews(v); });
+  on('PUT', '/api/views', ({ body }) => { const v = cleanViews(body?.views); setMeta(db, 'ui:views', JSON.stringify(v)); return v; });
+
   // ---- per-ticket extras (priority, labels, subtasks, files, blocked reason)
   const hosted = !!cfg.hosted;
   on('GET', '/api/extras', () => extrasSummary(db));
@@ -231,7 +240,7 @@ export function createApi(db, cfg) {
     if (!q('SELECT 1 FROM tickets WHERE id=?').get(id)) throw notFound('Unknown ticket');
     const cur = readExtras(db, id);
     // Locally files change only through the upload/delete routes; hosted clients manage their own storage objects.
-    const next = normalize({ ...body, c: body.c === undefined ? cur.c : body.c }, { files: hosted ? body.f : cur.f });
+    const next = normalize({ ...body, c: body.c === undefined ? cur.c : body.c, d: body.d === undefined ? cur.d : body.d }, { files: hosted ? body.f : cur.f });
     writeExtras(db, id, next);
     return next;
   });
@@ -423,6 +432,17 @@ export function createApi(db, cfg) {
     const plan = planOrBad(keepManual(body));
     setMeta(db, 'plan', JSON.stringify(plan));
     return planOut(plan, todayOf(query));
+  });
+  // What-if: the saved plan with some fields changed, computed but never stored. Body: {changes: {workDays, sprintDays, targetEnd, daysOff, team, startDate}}.
+  on('POST', '/api/plan/scenario', ({ body, query }) => {
+    const base = loadPlan();
+    if (!base) throw bad('Create a timeline first.');
+    const allowed = ['workDays', 'sprintDays', 'targetEnd', 'daysOff', 'team', 'startDate', 'anchor'];
+    const ch = Object.fromEntries(Object.entries(body?.changes || {}).filter(([k]) => allowed.includes(k)));
+    const plan = planOrBad({ ...base, ...ch, manual: base.manual });
+    const today = todayOf(query);
+    const pick = (sch) => ({ plannedEnd: sch.plannedEnd, projectedEnd: sch.projectedEnd, weeks: sch.weeks, workDaysTotal: sch.workDaysTotal, fit: sch.fit, team: sch.team.length });
+    return { current: pick(sched(base, today)), scenario: pick(sched(plan, today)) };
   });
   // Per-ticket overrides of the auto plan: {ticketId, member?, due?, start?} (null removes a field), or {ticketId, clear:true}.
   on('PUT', '/api/plan/manual', ({ body, query }) => {

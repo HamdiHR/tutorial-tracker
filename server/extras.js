@@ -9,13 +9,13 @@ import { getMeta, setMeta } from './db.js';
 
 export const KEY = (id) => `tk:${id}`;
 export const MAX_FILE = 25 * 1024 * 1024;
-const MAX_SUB = 100, MAX_FILES = 30, MAX_LABELS = 8, MAX_COMMENTS = 200;
+const MAX_SUB = 100, MAX_FILES = 30, MAX_LABELS = 8, MAX_COMMENTS = 200, MAX_DEPS = 10;
 const SAFE_INLINE = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf']);
 export const isInline = (mime) => SAFE_INLINE.has(mime);
 const rid = () => randomBytes(6).toString('hex');
 const str = (v, n) => String(v ?? '').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, n);
 
-export const EMPTY = () => ({ p: 0, l: [], s: [], f: [], b: '', c: [] });
+export const EMPTY = () => ({ p: 0, l: [], s: [], f: [], b: '', c: [], d: [] });
 
 export function readExtras(db, id) {
   let v = null;
@@ -35,6 +35,7 @@ export function normalize(v, { keepFiles = false, files = null } = {}) {
     return { i, t: str(x?.t, 200), d: x?.d ? 1 : 0 };
   }).filter((x) => x.t);
   o.b = str(v.b, 200);
+  o.d = [...new Set((Array.isArray(v.d) ? v.d : []).map((x) => str(x, 40)).filter((x) => /^[A-Za-z0-9_.-]{1,40}$/.test(x)))].slice(0, MAX_DEPS);
   const cseen = new Set();
   o.c = (Array.isArray(v.c) ? v.c : []).slice(-MAX_COMMENTS).map((x) => {
     const i = typeof x?.i === 'string' && /^[a-z0-9]{4,16}$/.test(x.i) && !cseen.has(x.i) ? x.i : rid();
@@ -52,7 +53,7 @@ export function normalize(v, { keepFiles = false, files = null } = {}) {
   return o;
 }
 
-const isEmpty = (o) => !o.p && !o.l.length && !o.s.length && !o.f.length && !o.b && !o.c.length;
+const isEmpty = (o) => !o.p && !o.l.length && !o.s.length && !o.f.length && !o.b && !o.c.length && !o.d.length;
 
 export function writeExtras(db, id, o) {
   if (isEmpty(o)) db.prepare('DELETE FROM meta WHERE key=?').run(KEY(id));
@@ -64,7 +65,7 @@ export function summary(db) {
   const out = {};
   for (const r of db.prepare(`SELECT key, value FROM meta WHERE key LIKE 'tk:%'`).all()) {
     let o; try { o = normalize(JSON.parse(r.value), { keepFiles: true }); } catch { continue; }
-    out[r.key.slice(3)] = { p: o.p, l: o.l, sd: o.s.filter((x) => x.d).length, st: o.s.length, fn: o.f.length, cn: o.c.length, img: o.f.filter((f) => f.m.startsWith('image/')).length, b: o.b };
+    out[r.key.slice(3)] = { p: o.p, l: o.l, sd: o.s.filter((x) => x.d).length, st: o.s.length, fn: o.f.length, cn: o.c.length, dp: o.d, img: o.f.filter((f) => f.m.startsWith('image/')).length, b: o.b };
   }
   return out;
 }

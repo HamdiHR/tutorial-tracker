@@ -365,6 +365,46 @@ export async function timelineView(root) {
   };
   paint();
 
+  const whatIf = () => {
+    const base = data.plan;
+    const ch = { workDays: [...base.workDays], sprintDays: base.sprintDays, targetEnd: base.targetEnd || '', addAi: false, addPerson: 0 };
+    const out = h('div', { class: 'wi-out', 'aria-live': 'polite' });
+    const hasAi = (base.team || []).some((m) => m.kind === 'ai');
+    const changes = () => {
+      const c = { workDays: ch.workDays, sprintDays: ch.sprintDays, targetEnd: ch.targetEnd || null };
+      let team = base.team?.length ? [...base.team] : [{ name: 'You' }];
+      if (ch.addAi && !hasAi) team.push({ name: 'Claude', kind: 'ai', color: '#b794f6' });
+      for (let i = 0; i < ch.addPerson; i++) team.push({ name: 'Teammate ' + (i + 1) });
+      if (team.length !== (base.team?.length || 1) || ch.addAi) c.team = team;
+      return c;
+    };
+    const diffLine = (label, a, b, fmt, better) => { const same = a === b; return h('div', { class: 'wi-row' }, h('span', { class: 'muted' }, label), h('span', {}, fmt(a)), h('span', { class: 'wi-arrow' }, '→'), h('b', { class: same ? '' : better(a, b) ? 'good' : 'bad' }, fmt(b))); };
+    const run = debounce(async () => {
+      try {
+        const r = await api.planScenario(changes(), todayStr());
+        const f = (d) => (!d ? '—' : d === 'done' ? 'Finished' : fmtDate(d, true));
+        const c = r.current, n = r.scenario;
+        out.replaceChildren(...[
+          diffLine('Planned finish', c.plannedEnd, n.plannedEnd, f, (a, b) => b < a),
+          diffLine('At your pace', c.projectedEnd, n.projectedEnd, f, (a, b) => (b || '9') < (a || '9')),
+          diffLine('Working days', c.workDaysTotal, n.workDaysTotal, String, (a, b) => b < a),
+          diffLine('People', c.team, n.team, String, () => true),
+          n.fit ? h('p', { class: n.fit.ok ? 'good small' : 'bad small' }, n.fit.ok ? `Meets your target end date (${fmtDate(n.fit.targetEnd, true)}).` : `Misses the target end date (${fmtDate(n.fit.targetEnd, true)}); you would need about ${n.fit.neededPace} steps per day.`) : null].filter(Boolean));
+      } catch (e) { out.replaceChildren(h('p', { class: 'bad small' }, e.message)); }
+    }, 150);
+    const dayChips = h('div', { class: 'row gap wrap' }, DAYS.map(([n, l]) => h('label', { class: 'tgl' }, h('input', { type: 'checkbox', checked: ch.workDays.includes(n), onChange: (e) => { ch.workDays = e.target.checked ? [...ch.workDays, n] : ch.workDays.filter((x) => x !== n); if (!ch.workDays.length) { ch.workDays = [n]; e.target.checked = true; } run(); } }), l)));
+    const m = openModal(h('div', { class: 'pad wi' },
+      h('h2', {}, '🔮 What if…'),
+      h('p', { class: 'muted small' }, 'Try changes and see the new finish date. Nothing is saved until you press Apply.'),
+      h('label', { class: 'fld' }, 'Working days', dayChips),
+      h('label', { class: 'fld' }, 'Days per sprint', h('input', { type: 'number', min: 1, max: 60, value: ch.sprintDays, onInput: (e) => { ch.sprintDays = Math.max(1, Math.min(60, Number(e.target.value) || 1)); run(); } })),
+      h('label', { class: 'fld' }, 'Target end date (optional)', h('input', { type: 'date', value: ch.targetEnd, onInput: (e) => { ch.targetEnd = e.target.value; run(); } })),
+      hasAi ? null : h('label', { class: 'tgl' }, h('input', { type: 'checkbox', onChange: (e) => { ch.addAi = e.target.checked; run(); } }), 'Add Claude as an AI teammate (works every day)'),
+      h('label', { class: 'fld' }, 'Extra people', h('input', { type: 'number', min: 0, max: 5, value: 0, onInput: (e) => { ch.addPerson = Math.max(0, Math.min(5, Number(e.target.value) || 0)); run(); } })),
+      out,
+      h('div', { class: 'row gap' }, h('button', { class: 'btn primary', type: 'button', onClick: async () => { try { const c = changes(); await api.planSave({ ...base, ...c, targetEnd: c.targetEnd || null }, todayStr()); m.close(true); toast('Plan updated'); again(); } catch (e) { toast(e.message, 'err'); } } }, 'Apply to my plan'), h('button', { class: 'btn', type: 'button', onClick: () => m.close() }, 'Close'))), { wide: false, label: 'What if' });
+    run();
+  };
   const edit = () => {
     const m = openModal(h('div', { class: 'pad' }, h('h2', {}, 'Edit your plan'), planForm(data.plan, () => { m.close(true); toast('Timeline updated'); again(); }, () => m.close())), { wide: true, label: 'Edit plan' });
   };
@@ -375,7 +415,7 @@ export async function timelineView(root) {
   };
 
   root.replaceChildren(h('div', { class: 'dash' },
-    h('div', { class: 'sec-head' }, h('h1', { class: 'page-title' }, 'Timeline'), h('div', { class: 'row gap' }, h('a', { class: 'btn', href: '#/board' }, '▦ Board'), h('button', { class: 'btn', onClick: edit }, '✎ Edit plan'), h('button', { class: 'btn', title: 'Download the schedule as a calendar file (.ics)', onClick: () => downloadIcs(sch) }, '📅 Export .ics'), h('button', { class: 'link', onClick: reset }, 'Remove plan'))),
+    h('div', { class: 'sec-head' }, h('h1', { class: 'page-title' }, 'Timeline'), h('div', { class: 'row gap' }, h('a', { class: 'btn', href: '#/board' }, '▦ Board'), h('button', { class: 'btn', onClick: edit }, '✎ Edit plan'), h('button', { class: 'btn', title: 'Preview a change without saving it', onClick: whatIf }, '🔮 What if…'), h('button', { class: 'btn', title: 'Download the schedule as a calendar file (.ics)', onClick: () => downloadIcs(sch) }, '📅 Export .ics'), h('button', { class: 'link', onClick: reset }, 'Remove plan'))),
     h('section', { class: 'stats tl-stats' },
       tile('🏁', 'Planned finish', fmtDate(sch.plannedEnd, true), `${multi ? `team of ${sch.team.length} · ` : ''}${plural(sch.sprints.length, 'sprint')} · ${plural(sch.workDaysTotal, 'working day')} · ≈ ${plural(sch.weeks, 'week')}`),
       tile('📈', 'At your pace', allDone ? 'Finished 🎉' : sch.projectedEnd ? fmtDate(sch.projectedEnd, true) : 'Not enough data yet', allDone ? '' : sch.projectedEnd ? ((projDiff > 0 ? `${plural(projDiff, 'day')} later than planned` : projDiff < 0 ? `${plural(-projDiff, 'day')} earlier than planned` : 'right on plan') + (sch.forecast?.fast && sch.forecast?.slow && sch.forecast.fast !== sch.forecast.slow ? ` · range ${fmtDate(sch.forecast.fast)} – ${fmtDate(sch.forecast.slow)}` : '')) : 'needs a few working days of progress', projDiff > 0 ? 'late' : ''),

@@ -90,3 +90,39 @@ test('comments: saved, kept when other fields are saved, capped and cleaned', as
   assert.equal(o.c[0].w, 'ai'); assert.equal(o.c[0].t, 'hi there'); assert.equal(o.c[1].w, 'me'); assert.equal(o.c[1].t.length, 2000);
   assert.equal(normalize({ c: Array.from({ length: 300 }, (_, i) => ({ t: 'n' + i })) }).c.length, 200);
 });
+
+test('dependencies and comments survive saves that do not mention them; deps are cleaned', async (t) => {
+  const s = await start();
+  t.after(() => s.close());
+  const ids = (await s.call('GET', '/api/overview')).data.sprints[0].items.filter((x) => x.kind === 'ticket').map((x) => x.id);
+  const a = ids[0], b = ids[1];
+  const u = (id) => `/api/tickets/${encodeURIComponent(id)}/extras`;
+  await s.call('PUT', u(b), { d: [a, a, 'bad id!', '../x'], c: [{ t: 'hello' }] });
+  const r = await s.call('PUT', u(b), { p: 3 }); // does not mention d or c
+  assert.deepEqual(r.data.d, [a]);
+  assert.equal(r.data.c.length, 1);
+  assert.deepEqual((await s.call('GET', '/api/extras')).data[b].dp, [a]);
+});
+
+test('saved board filters: round-trip, cleaned, capped', async (t) => {
+  const s = await start();
+  t.after(() => s.close());
+  assert.deepEqual((await s.call('GET', '/api/views')).data, []);
+  const r = await s.call('PUT', '/api/views', { views: [{ name: '  Blockers  ', f: { view: 'blocked', hideDone: true, evil: 'x' } }, { name: '   ' }, ...Array.from({ length: 40 }, (_, i) => ({ name: 'v' + i }))] });
+  assert.equal(r.data.length, 30);
+  assert.equal(r.data[0].name, 'Blockers');
+  assert.equal(r.data[0].f.view, 'blocked'); assert.equal(r.data[0].f.hideDone, 1); assert.equal(r.data[0].f.evil, undefined);
+  assert.equal((await s.call('GET', '/api/views')).data.length, 30);
+});
+
+test('scenario preview computes a new finish date without saving anything', async (t) => {
+  const s = await start();
+  t.after(() => s.close());
+  const plan = { startDate: '2027-01-04', workDays: [1, 2, 3, 4, 5], sprintDays: 5, anchor: 'start', perSprint: {}, daysOff: [], team: [{ name: 'You' }] };
+  assert.equal((await s.call('POST', '/api/plan/scenario?today=2027-01-04', { changes: { workDays: [1] } })).status, 400); // no plan yet
+  await s.call('PUT', '/api/plan?today=2027-01-04', plan);
+  const r = (await s.call('POST', '/api/plan/scenario?today=2027-01-04', { changes: { workDays: [1, 2, 3, 4, 5, 6, 0], hack: 1 } })).data;
+  assert.ok(r.scenario.plannedEnd < r.current.plannedEnd, 'a 7-day week finishes sooner');
+  const again = (await s.call('GET', '/api/plan?today=2027-01-04')).data;
+  assert.deepEqual(again.plan.workDays, [1, 2, 3, 4, 5]); // nothing saved
+});

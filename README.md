@@ -138,3 +138,4 @@ Vercel + Supabase, email/password sign-in (invite-only), per-person data, first-
 - **Smart start date**: "Continue from where I am" (default) or "Lay everything out from sprint 1", optional target end date, finished sprints use their real completion dates.
 - **Board**: grouping, saved views, WIP limits, collapsible columns, compact mode.
 - **0.39.2**: task links (`?t=`), comments per task, burndown chart on the timeline, `.ics` export (📅 button on the timeline).
+- **0.39.3**: save your own board filters (💾), timeline minimap, task dependencies (arrows on the roadmap, warning on conflicts), 🔮 What if… planner that previews a changed plan before you apply it.

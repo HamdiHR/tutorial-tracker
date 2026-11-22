@@ -2,7 +2,7 @@
 // Assignee (you or your AI assistant), dates, priority, labels, notes, subtasks, files, steps, hand-off brief.
 import { h, toast, debounce, bar } from './dom.js';
 import { api } from './api.js';
-import { S, sprintName, STATUS_LABEL } from './state.js';
+import { S, sprintName, shortId, STATUS_LABEL } from './state.js';
 import { todayStr, fmtDate, addDaysStr, parse } from './dates.js';
 import { avatar } from './ui.js';
 import * as files from './files.js';
@@ -90,7 +90,7 @@ export async function openDrawer(ticketId, { onChange } = {}) {
   } catch (e) { root.replaceChildren(h('div', { class: 'dr-loading' }, e.message)); return; }
 
   const saveExtras = debounce(async () => {
-    try { extras = { ...extras, ...(await api.saveExtras(ticketId, { p: extras.p, l: extras.l, s: extras.s, b: extras.b, c: extras.c, ...(hosted ? { f: extras.f } : {}) })), ...(hosted ? {} : {}) }; notify('extras'); } catch (e) { toast(e.message, 'err'); }
+    try { extras = { ...extras, ...(await api.saveExtras(ticketId, { p: extras.p, l: extras.l, s: extras.s, b: extras.b, c: extras.c, d: extras.d, ...(hosted ? { f: extras.f } : {}) })), ...(hosted ? {} : {}) }; notify('extras'); } catch (e) { toast(e.message, 'err'); }
   }, 350);
   const touch = () => { saveExtras(); };
 
@@ -193,7 +193,7 @@ export async function openDrawer(ticketId, { onChange } = {}) {
       try {
         const r = await files.upload(ticketId, f, hosted);
         if (r.extras) extras = { ...extras, f: r.extras.f };
-        else { extras.f = [...extras.f, r.file]; await api.saveExtras(ticketId, { p: extras.p, l: extras.l, s: extras.s, b: extras.b, c: extras.c, f: extras.f }); }
+        else { extras.f = [...extras.f, r.file]; await api.saveExtras(ticketId, { p: extras.p, l: extras.l, s: extras.s, b: extras.b, c: extras.c, d: extras.d, f: extras.f }); }
         notify('extras');
       } catch (e) { toast(e.message, 'err'); }
       busy--; paintFiles();
@@ -210,7 +210,7 @@ export async function openDrawer(ticketId, { onChange } = {}) {
   const remove = async (f) => {
     if (!confirm(`Delete "${f.n}"?`)) return;
     try {
-      if (hosted) { await files.removeObject(f); extras.f = extras.f.filter((x) => x.i !== f.i); await api.saveExtras(ticketId, { p: extras.p, l: extras.l, s: extras.s, b: extras.b, c: extras.c, f: extras.f }); }
+      if (hosted) { await files.removeObject(f); extras.f = extras.f.filter((x) => x.i !== f.i); await api.saveExtras(ticketId, { p: extras.p, l: extras.l, s: extras.s, b: extras.b, c: extras.c, d: extras.d, f: extras.f }); }
       else extras = { ...extras, f: (await api.deleteFile(ticketId, f.i)).extras.f };
       paintFiles(); notify('extras');
     } catch (e) { toast(e.message, 'err'); }
@@ -241,6 +241,24 @@ export async function openDrawer(ticketId, { onChange } = {}) {
   noteTa.addEventListener('input', () => { noteState.textContent = 'Typing…'; saveNote(); });
   noteTa.addEventListener('blur', () => saveNote.flush());
 
+  // dependencies: tickets that must be finished before this one (drawn as arrows on the roadmap)
+  const depBox = h('div', { class: 'dr-deps' });
+  const persistD = async () => { const r = await api.saveExtras(ticketId, { p: extras.p, l: extras.l, s: extras.s, b: extras.b, c: extras.c, d: extras.d, ...(hosted ? { f: extras.f } : {}) }); extras.d = r.d || []; paintDeps(); notify('extras'); };
+  const paintDeps = () => {
+    const ents = (schedule?.sprints || []).flatMap((r) => r.schedule || []);
+    const byId = new Map(ents.map((t) => [t.id, t]));
+    const mine = byId.get(ticketId);
+    const cur = extras.d || [];
+    const opts = ents.filter((t) => t.id !== ticketId && !cur.includes(t.id));
+    depBox.replaceChildren(
+      cur.length ? h('ul', { class: 'dep-list' }, ...cur.map((id) => { const t = byId.get(id); const clash = t && mine && t.status !== 'done' && !t.history && t.due >= mine.start;
+        return h('li', { class: clash ? 'clash' : '' }, h('i', { class: 'dot ' + (t?.status || 'todo') }), h('span', { class: 'chip' }, shortId(id)), h('span', { class: 'ell grow' }, t?.title || 'Not in the plan'),
+          clash ? h('span', { class: 'small late-t', title: `${shortId(id)} is planned to finish ${t.due}, but this task starts ${mine.start}.` }, '⚠ finishes after this starts') : null,
+          h('button', { class: 'icon-btn sm', type: 'button', 'aria-label': 'Remove dependency', onClick: async () => { try { extras.d = cur.filter((x) => x !== id); await persistD(); } catch (e) { toast(e.message, 'err'); } } }, '✕')); })) : h('p', { class: 'muted small' }, 'Nothing has to be finished first.'),
+      opts.length && cur.length < 10 ? h('select', { class: 'sel', 'aria-label': 'Add a dependency', onChange: async (e) => { const v = e.target.value; if (!v) return; try { extras.d = [...cur, v]; await persistD(); } catch (er) { toast(er.message, 'err'); } } },
+        h('option', { value: '' }, '+ Needs another task first…'), ...opts.map((t) => h('option', { value: t.id }, `${shortId(t.id)} · ${t.title}`.slice(0, 80)))) : null);
+  };
+
   // comments
   const cBox = h('div', { class: 'dr-comments' });
   const cTa = h('textarea', { class: 'note-ta', rows: 2, placeholder: 'Write a comment, or paste what Claude answered…', 'aria-label': 'New comment' });
@@ -262,7 +280,7 @@ export async function openDrawer(ticketId, { onChange } = {}) {
         } }, 'Add comment')));
   };
   const persistC = async () => {
-    const r = await api.saveExtras(ticketId, { p: extras.p, l: extras.l, s: extras.s, b: extras.b, c: extras.c, ...(hosted ? { f: extras.f } : {}) });
+    const r = await api.saveExtras(ticketId, { p: extras.p, l: extras.l, s: extras.s, b: extras.b, c: extras.c, d: extras.d, ...(hosted ? { f: extras.f } : {}) });
     extras.c = r.c || []; paintComments(); notify('extras');
   };
 
@@ -293,11 +311,12 @@ export async function openDrawer(ticketId, { onChange } = {}) {
       blocked,
       sec('Assigned to', whoBox),
       sec('Dates', dates),
+      sec('Depends on', depBox),
       sec('Priority & labels', prio, lblBox),
       sec('Subtasks', subBox),
       sec('Files & images', filesBox),
       sec('Notes', noteTa, noteState),
       sec('Comments', cBox),
       sec('Steps', stepsBox)));
-  paintHead(); paintWho(); paintDates(); paintPrio(); paintLabels(); paintBlocked(); paintSubs(); paintFiles(); paintComments(); paintSteps();
+  paintHead(); paintWho(); paintDates(); paintPrio(); paintLabels(); paintBlocked(); paintSubs(); paintFiles(); paintComments(); paintDeps(); paintSteps();
 }

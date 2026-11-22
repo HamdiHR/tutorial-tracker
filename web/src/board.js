@@ -46,7 +46,8 @@ export async function boardView(root) {
   S.keys = {};
   S.activeTicket = null;
   document.title = 'Board — Tutorial Tracker';
-  const [ov, planData, extras0] = await Promise.all([refreshOverview(), api.plan(todayStr()).catch(() => ({ plan: null })), api.extras().catch(() => ({}))]);
+  const [ov, planData, extras0, myViews0] = await Promise.all([refreshOverview(), api.plan(todayStr()).catch(() => ({ plan: null })), api.extras().catch(() => ({})), api.views().catch(() => [])]);
+  let myViews = myViews0;
   let extras = extras0;
   let sch = planData.schedule;
   const team = sch?.team || [];
@@ -62,7 +63,7 @@ export async function boardView(root) {
 
   const GROUPS = { '': 'No grouping', sprint: 'Group by sprint', who: 'Group by assignee', prio: 'Group by priority' };
   const VIEWS = { '': 'All tickets', late: 'Late', blocked: 'Blocked', high: 'High priority', review: '✦ Claude done · needs review', claude: '✦ Assigned to Claude', mine: 'Assigned to me' };
-  const f = { sprint: ls('bdSprint') || '', who: ls('bdWho') || '', q: '', group: ls('bdGroup') in GROUPS ? ls('bdGroup') || '' : ls('bdLanes') === '1' ? 'sprint' : '', view: ls('bdView') in VIEWS ? ls('bdView') || '' : '', hideDone: ls('bdHideDone') === '1', compact: ls('bdCompact') === '1' };
+  const f = { sprint: ls('bdSprint') || '', who: ls('bdWho') || '', q: (() => { const v = ls('bdQ') || ''; if (v) ls('bdQ', ''); return v; })(), group: ls('bdGroup') in GROUPS ? ls('bdGroup') || '' : ls('bdLanes') === '1' ? 'sprint' : '', view: ls('bdView') in VIEWS ? ls('bdView') || '' : '', hideDone: ls('bdHideDone') === '1', compact: ls('bdCompact') === '1' };
   if (f.group && !GROUPS[f.group]) f.group = '';
   const wip = (key) => Number(ls('bdWip.' + key)) || 0;
   const collapsed = (key) => ls('bdCol.' + key) === '1';
@@ -302,15 +303,30 @@ export async function boardView(root) {
   // ---------- toolbar
   const sprintSel = h('select', { class: 'sel', 'aria-label': 'Filter by sprint', onChange: (e) => { f.sprint = e.target.value; ls('bdSprint', f.sprint); fill(); } }, h('option', { value: '' }, 'All sprints'), ov.sprints.map((sp) => h('option', { value: sp.id, selected: sp.id === f.sprint }, `${sprintLabel(sp)} · ${sprintName(sp)}`)));
   const whoSel = multi ? h('select', { class: 'sel', 'aria-label': 'Filter by person', onChange: (e) => { f.who = e.target.value; ls('bdWho', f.who); fill(); } }, h('option', { value: '' }, 'Everyone'), team.map((m) => h('option', { value: m.id, selected: m.id === f.who }, m.name))) : null;
-  const search = h('input', { class: 'bd-search', type: 'search', placeholder: 'Filter tickets…', 'aria-label': 'Filter tickets', onInput: debounce((e) => { f.q = e.target.value.trim().toLowerCase(); fill(); }, 120) });
+  const search = h('input', { class: 'bd-search', type: 'search', placeholder: 'Filter tickets…', 'aria-label': 'Filter tickets', value: f.q, onInput: debounce((e) => { f.q = e.target.value.trim().toLowerCase(); fill(); }, 120) });
   const viewSel = h('select', { class: 'sel', 'aria-label': 'Saved view', onChange: (e) => { f.view = e.target.value; ls('bdView', f.view); fill(); } }, Object.entries(VIEWS).map(([k, l]) => h('option', { value: k, selected: k === f.view }, l)));
+  // my saved filters (stored with the account): snapshot of the current toolbar, applied by re-rendering the board
+  const snap = () => ({ sprint: f.sprint || '', who: f.who || '', q: f.q || '', view: f.view || '', group: f.group || '', hideDone: f.hideDone ? 1 : 0 });
+  const applyView = (v) => { ls('bdSprint', v.f.sprint); ls('bdWho', v.f.who); ls('bdView', v.f.view); ls('bdGroup', v.f.group); ls('bdHideDone', v.f.hideDone ? '1' : '0'); ls('bdQ', v.f.q); boardView(root); };
+  const mineSel = h('select', { class: 'sel', 'aria-label': 'My saved filters', onChange: (e) => { const v = myViews.find((x) => x.id === e.target.value); if (v) applyView(v); } },
+    h('option', { value: '' }, myViews.length ? 'My filters…' : 'My filters (none yet)'), myViews.map((v) => h('option', { value: v.id, selected: JSON.stringify(v.f) === JSON.stringify(snap()) }, v.name)));
+  const saveMine = async () => {
+    const name = (prompt('Name this filter (it saves the sprint, person, view, search, grouping and Hide Done):') || '').trim().slice(0, 40);
+    if (!name) return;
+    try { const same = myViews.find((x) => x.name.toLowerCase() === name.toLowerCase()); myViews = await api.saveViews([...myViews.filter((x) => x !== same), { id: same?.id, name, f: snap() }]); toast(`Saved “${name}”.`); boardView(root); } catch (e) { toast(e.message, 'err'); }
+  };
+  const delMine = async () => {
+    const v = myViews.find((x) => x.id === mineSel.value); if (!v) return toast('Pick one of your filters first.');
+    if (!confirm(`Delete the filter “${v.name}”?`)) return;
+    try { myViews = await api.saveViews(myViews.filter((x) => x !== v)); toast('Deleted.'); boardView(root); } catch (e) { toast(e.message, 'err'); }
+  };
   const groupSel = h('select', { class: 'sel', 'aria-label': 'Group cards', onChange: (e) => { f.group = e.target.value; ls('bdGroup', f.group); relayout(); } }, Object.entries(GROUPS).map(([k, l]) => h('option', { value: k, selected: k === f.group }, l)));
   const tog = (label, key, storeKey) => h('label', { class: 'tgl' }, h('input', { type: 'checkbox', checked: f[key], onChange: (e) => { f[key] = e.target.checked; ls(storeKey, f[key] ? '1' : '0'); relayout(); } }), label);
 
   wrap.append(summary, stage);
   root.replaceChildren(h('div', { class: 'dash board' },
     h('div', { class: 'sec-head' }, h('h1', { class: 'page-title' }, 'Board'), h('div', { class: 'row gap' }, h('a', { class: 'btn', href: '#/timeline' }, planData.plan ? '🗓 Timeline' : 'Plan a timeline & team'))),
-    h('div', { class: 'bd-filters' }, sprintSel, whoSel, viewSel, search, groupSel, tog('Hide Done', 'hideDone', 'bdHideDone'), tog('Compact', 'compact', 'bdCompact')),
+    h('div', { class: 'bd-filters' }, sprintSel, whoSel, viewSel, mineSel, h('button', { class: 'btn sm', type: 'button', title: 'Save the current filters under a name', onClick: saveMine }, '💾 Save filters'), h('button', { class: 'icon-btn sm', type: 'button', 'aria-label': 'Delete selected saved filter', title: 'Delete the selected saved filter', onClick: delMine }, '🗑'), search, groupSel, tog('Hide Done', 'hideDone', 'bdHideDone'), tog('Compact', 'compact', 'bdCompact')),
     strip,
     wrap,
     h('p', { class: 'muted small' }, 'Click a card to open its drawer. Drag it to a column, or use ⇄. Done ticks every step (Undo is offered); finishing the last step moves a ticket to Done by itself. Pending keeps the steps you already ticked. Click a column count to set a work-in-progress limit, or a column title to fold it.')));

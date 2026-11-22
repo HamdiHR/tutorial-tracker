@@ -58,6 +58,7 @@ export function roadmap(sch, { extras = {}, openTicket, onChange, state }) {
 
     const body = h('div', { class: 'rm-body', style: { width: W + 'px' } });
     const list = [];
+    const pos = new Map();
     for (const r of rows) {
       const isOpen = open.has(r.id);
       const pct = r.actualPct;
@@ -87,6 +88,7 @@ export function roadmap(sch, { extras = {}, openTicket, onChange, state }) {
         if (!t.history) bindDrag(bar, t, ppd, { openTicket, onChange });
         else bar.addEventListener('click', () => openTicket(t.id));
         bar.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTicket(t.id); } });
+        pos.set(t.id, { row: list.length, l: left, r: left + width, t });
         list.push(h('div', { class: 'rm-row rm-tk' },
           h('button', { class: 'rm-label tk', type: 'button', onClick: () => openTicket(t.id), title: t.title },
             h('i', { class: 'dot ' + t.status }), h('span', { class: 'tid' }, shortId(t.id)), h('span', { class: 'ell grow' }, t.title), ...badges(ex2).slice(0, 2), solo ? null : who(m)),
@@ -95,7 +97,23 @@ export function roadmap(sch, { extras = {}, openTicket, onChange, state }) {
       }
     }
     const bodyH = list.length * ROW;
-    body.append(...[shade,
+    // dependency arrows: from the end of the task that must finish first to the start of the task that waits for it
+    const NS = 'http://www.w3.org/2000/svg';
+    const arrows = document.createElementNS(NS, 'svg');
+    arrows.setAttribute('class', 'rm-deps'); arrows.setAttribute('width', W); arrows.setAttribute('height', bodyH);
+    let nDeps = 0;
+    for (const [id, to] of pos) for (const dep of extras[id]?.dp || []) {
+      const from = pos.get(dep); if (!from) continue;
+      const clash = from.t.status !== 'done' && from.t.due >= to.t.start;
+      const y1 = from.row * ROW + ROW / 2, y2 = to.row * ROW + ROW / 2, x1 = from.r, x2 = to.l, mx = Math.max(x1 + 8, x2 - 8);
+      const p = document.createElementNS(NS, 'path');
+      p.setAttribute('d', `M${x1} ${y1} H${mx} V${y2} H${x2 - 2}`); p.setAttribute('class', 'rm-dep' + (clash ? ' clash' : '') + (from.t.status === 'done' ? ' ok' : ''));
+      p.setAttribute('marker-end', clash ? 'url(#rmArrowBad)' : 'url(#rmArrow)');
+      const tt = document.createElementNS(NS, 'title'); tt.textContent = `${shortId(dep)} → ${shortId(id)}${clash ? ' (conflict: the first task is planned to end after the second starts)' : ''}`; p.append(tt);
+      arrows.append(p); nDeps++;
+    }
+    if (nDeps) arrows.insertAdjacentHTML('afterbegin', '<defs><marker id="rmArrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" class="rm-ah"/></marker><marker id="rmArrowBad" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" class="rm-ah bad"/></marker></defs>');
+    body.append(...[shade, nDeps ? arrows : null,
       ...rows.filter((r) => !r.history).map((r) => h('div', { class: 'rm-vline', style: { left: x(r.start) + 'px', height: bodyH + 'px' } })),
       today >= t0 && today <= t1 ? h('div', { class: 'rm-today', style: { left: x(today) + ppd / 2 + 'px', height: bodyH + 'px' } }, h('span', {}, 'Today')) : null,
       sch.projectedEnd && sch.projectedEnd !== 'done' && sch.projectedEnd >= t0 && sch.projectedEnd <= t1 ? h('div', { class: 'rm-forecast', style: { left: x(sch.projectedEnd) + 'px', height: bodyH + 'px' } }, h('span', {}, 'Forecast')) : null].filter(Boolean));
@@ -106,7 +124,7 @@ export function roadmap(sch, { extras = {}, openTicket, onChange, state }) {
   };
 
   let last = null;
-  const render = (keep = false) => {
+  let render = (keep = false) => {
     const sl = scroller.scrollLeft, st = scroller.scrollTop;
     last = build();
     scroller.replaceChildren(last.frag);
@@ -116,8 +134,32 @@ export function roadmap(sch, { extras = {}, openTicket, onChange, state }) {
   state.toToday = () => { const px = last.x(today) - (scroller.clientWidth - LABEL_W) / 2; scroller.scrollTo({ left: Math.max(0, px), behavior: 'smooth' }); };
   state.fit = () => { state.ppd = Math.max(2, Math.min(34, (scroller.clientWidth - LABEL_W - 8) / days)); render(); scroller.scrollLeft = 0; };
   state.setZoom = (z) => { const c = scroller.scrollLeft + (scroller.clientWidth - LABEL_W) / 2; const dayAtCenter = (c) / state.ppd; state.ppd = z; render(); scroller.scrollLeft = dayAtCenter * z - (scroller.clientWidth - LABEL_W) / 2; };
+  // minimap: the whole plan squeezed into one strip; the frame is what you see now. Click or drag to move.
+  const mini = h('div', { class: 'rm-mini', role: 'slider', 'aria-label': 'Timeline overview. Click or drag to scroll.', tabindex: 0 });
+  const frame = h('div', { class: 'rm-mini-view' });
+  const paintMini = () => {
+    mini.replaceChildren(...rows.map((r) => h('i', { class: 'mm-sp st-' + r.state + (r.history ? ' is-past' : ''), style: { left: (dayDiff(t0, r.start) / days) * 100 + '%', width: Math.max(0.6, ((dayDiff(r.start, r.end) + 1) / days) * 100) + '%' }, title: `${r.title} · ${r.actualPct}%` })),
+      today >= t0 && today <= t1 ? h('b', { class: 'mm-today', style: { left: (dayDiff(t0, today) / days) * 100 + '%' } }) : null, frame);
+    syncMini();
+  };
+  const syncMini = () => {
+    if (!last) return;
+    const total = last.W, vis = Math.max(0, scroller.clientWidth - LABEL_W);
+    frame.style.left = Math.min(100, (scroller.scrollLeft / total) * 100) + '%';
+    frame.style.width = Math.min(100, (vis / total) * 100) + '%';
+    mini.classList.toggle('off', total <= vis + 4);
+  };
+  const jump = (e) => { const r = mini.getBoundingClientRect(); const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); scroller.scrollLeft = frac * last.W - (scroller.clientWidth - LABEL_W) / 2; };
+  mini.addEventListener('pointerdown', (e) => { mini.setPointerCapture(e.pointerId); jump(e); const mv = (ev) => jump(ev); const up = () => { mini.removeEventListener('pointermove', mv); mini.removeEventListener('pointerup', up); }; mini.addEventListener('pointermove', mv); mini.addEventListener('pointerup', up); });
+  mini.addEventListener('keydown', (e) => { const step = (scroller.clientWidth - LABEL_W) * 0.5; if (e.key === 'ArrowRight') { e.preventDefault(); scroller.scrollLeft += step; } if (e.key === 'ArrowLeft') { e.preventDefault(); scroller.scrollLeft -= step; } });
+  scroller.addEventListener('scroll', syncMini, { passive: true });
+  const baseRender = render;
+  render = (keep) => { baseRender(keep); paintMini(); };
+  state.render = render;
   render();
-  wrap.append(scroller);
+  wrap.append(mini, scroller);
+  try { new ResizeObserver(() => syncMini()).observe(scroller); } catch {}
+  requestAnimationFrame(syncMini);
   requestAnimationFrame(() => { if (state.first) { state.first = false; scroller.scrollLeft = Math.max(0, last.x(today) - (scroller.clientWidth - LABEL_W) * 0.3); } });
   return wrap;
 

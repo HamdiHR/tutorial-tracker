@@ -29,7 +29,8 @@ Richer cards (assignee, subtasks, attachments, due chip, labels) · WIP limit pe
 - [x] **P1 Smart dates** (anchor modes, history from the activity log, partial sprints, target end date, forecast range, 18 scenario tests) and **version badge**: built in 0.39.1.
 - [x] P2 task drawer (opens from board cards and timeline bars) · [x] P3 subtasks, priority, labels, blocked reason, assign to you or Claude (AI) · [x] P4 attachments (local disk, or Supabase Storage free tier when hosted; images compressed to WebP) · [x] P5 Gantt roadmap + team lanes + calendar + agenda + sprints views · [x] P6 board polish (priority/labels/subtasks on cards, WIP limits, grouping, saved views, collapse, density, review ribbon) · [x] P7 hardening: 41 tests, storage RLS checks, hosted upload e2e.
 - [x] **0.39.2:** shareable task link (`/?t=<ticket>`, "Copy link" in the drawer), per-task comments (as you or as Claude), burndown chart (plan vs real), `.ics` calendar export. Board status moves already had Undo.
-- **Not built (honest list):** custom saved filters, timeline minimap, dependency connectors, scenario planner.
+- [x] **0.39.3:** custom saved board filters (stored per account), timeline minimap, dependency arrows ("Depends on" in the drawer, red when the plan conflicts), "What if…" scenario planner.
+- **Not built (honest list):** nothing from this plan is left. Dependencies are shown and warned about, but do not move dates automatically.
 
 ---
 

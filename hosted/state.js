@@ -11,7 +11,7 @@ import { syncDrift, reindexStep } from '../server/db.js';
 const toSql = (iso) => (iso ? new Date(iso).toISOString().slice(0, 19).replace('T', ' ') : null); // Postgres -> sqlite (UTC)
 const toIso = (s) => (s ? s.replace(' ', 'T') + 'Z' : null); // sqlite (UTC) -> Postgres
 const PERSIST_META = ['plan', 'resume'];
-const persists = (k) => PERSIST_META.includes(k) || k.startsWith('tk:'); // tk:<ticket> = priority, labels, subtasks, files
+const persists = (k) => PERSIST_META.includes(k) || k.startsWith('tk:') || k === 'ui:views'; // tk:<ticket> = priority, labels, subtasks, files
 
 /** Copy the shipped, read-only content DB to a private working file and open it. */
 export function openWorking(templatePath) {
