@@ -33,7 +33,8 @@ function cleanTeam(input) {
     seen.add(id);
     const color = typeof m?.color === 'string' && /^#[0-9a-f]{6}$/i.test(m.color) ? m.color : PALETTE[i % PALETTE.length];
     const wd = cleanDayList(m?.workDays);
-    return { id, name, color, workDays: wd.length ? wd : null, daysOff: cleanDates(m?.daysOff, `${name}: days off`) };
+    const kind = m?.kind === 'ai' ? 'ai' : 'human'; // 'ai' = your AI coding assistant (vibe coding): works any day
+    return { id, name, color, kind, workDays: wd.length ? wd : null, daysOff: cleanDates(m?.daysOff, `${name}: days off`) };
   });
 }
 
@@ -78,7 +79,7 @@ export function cleanPlan(input) {
 /** Checker for one person: their own weekdays (or the plan's) minus shared and personal days off. */
 function checker(plan, member) {
   const off = new Set([...plan.daysOff, ...(member?.daysOff || [])]);
-  const wd = new Set(member?.workDays || plan.workDays);
+  const wd = new Set(member?.workDays || (member?.kind === 'ai' ? [0, 1, 2, 3, 4, 5, 6] : plan.workDays));
   return (d) => wd.has(dayOfWeek(d)) && !off.has(d);
 }
 
@@ -100,7 +101,9 @@ export function computeSchedule(planIn, sprints, today, extra = {}) {
   const plan = cleanPlan(planIn);
   if (!validDate(today)) throw new Error('Invalid today');
   const members = plan.team.map((m) => ({ ...m, works: checker(plan, m) }));
-  const isTeamWork = (d) => members.some((m) => m.works(d));
+  // The calendar follows the people; an AI assistant works around them and never stretches the schedule.
+  const calendar = members.some((m) => m.kind !== 'ai') ? members.filter((m) => m.kind !== 'ai') : members;
+  const isTeamWork = (d) => calendar.some((m) => m.works(d));
   const tdy = today;
   const tally = members.map(() => ({ tickets: 0, steps: 0, stepsDone: 0, days: 0 }));
 
@@ -256,7 +259,7 @@ export function computeSchedule(planIn, sprints, today, extra = {}) {
   const workDaysTotal = rows.reduce((a, r) => a + r.days, 0);
   return {
     plan,
-    team: members.map((m, i) => ({ id: m.id, name: m.name, color: m.color, workDays: m.workDays, daysOff: m.daysOff, ...tally[i] })),
+    team: members.map((m, i) => ({ id: m.id, name: m.name, color: m.color, kind: m.kind, workDays: m.workDays, daysOff: m.daysOff, ...tally[i] })),
     sprints: rows,
     plannedEnd,
     projectedEnd,

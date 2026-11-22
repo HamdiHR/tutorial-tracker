@@ -7,7 +7,13 @@ SELECT tt_apply('{"steps":{"set":[{"t":"S1-T01","k":"a","done":true,"done_at":"2
 SELECT 'user1 state', jsonb_array_length(s->'steps') steps, jsonb_array_length(s->'tickets') tickets, jsonb_array_length(s->'activity') acts, jsonb_array_length(s->'versions') vers, jsonb_array_length(s->'badges') badges, s->'meta' meta, s->'profile'->>'role' role FROM (SELECT tt_state() s) x;
 SELECT tt_apply('{"steps":{"del":[{"t":"S1-T01","k":"b"}]},"tickets":{"del":["S1-T01"]},"meta":{"del":["plan"]},"drift":{"del":[{"t":"S1-T01","k":"a","h":"abc"}]}}') AS deleted;
 SELECT 'user1 after delete', jsonb_array_length(s->'steps') steps, jsonb_array_length(s->'tickets') tickets, jsonb_array_length(s->'drift') drift, s->'meta' meta FROM (SELECT tt_state() s) x;
+RESET ROLE; SET ROLE authenticated; SET request.jwt.claim.sub = '00000000-0000-0000-0000-000000000001';
+SELECT tt_apply('{"meta":{"set":{"tk:S1-T01":"{\"p\":2}"}}}');
+INSERT INTO storage.objects(bucket_id, name) VALUES ('task-files', '00000000-0000-0000-0000-000000000001/S1-T01/f1');
+SELECT 'tk meta persisted', tt_state()->'meta'->>'tk:S1-T01' AS v;
 SET request.jwt.claim.sub = '00000000-0000-0000-0000-000000000002';
+DO $$ BEGIN BEGIN INSERT INTO storage.objects(bucket_id, name) VALUES ('task-files', '00000000-0000-0000-0000-000000000001/S1-T01/evil'); RAISE EXCEPTION 'SHOULD FAIL'; EXCEPTION WHEN insufficient_privilege OR check_violation THEN RAISE NOTICE 'PASS cannot upload into another folder'; END; END $$;
+DO $$ BEGIN IF (SELECT count(*) FROM storage.objects) = 0 THEN RAISE NOTICE 'PASS cannot see another users files'; ELSE RAISE EXCEPTION 'SHOULD FAIL'; END IF; END $$;
 SELECT 'user2 sees user1 rows?', jsonb_array_length(tt_state()->'steps') AS steps, tt_state()->'profile'->>'email' AS own_profile;
 DO $$ BEGIN BEGIN INSERT INTO tt_user_steps(user_id,ticket_id,step_key) VALUES ('00000000-0000-0000-0000-000000000001','S1','a'); RAISE EXCEPTION 'SHOULD FAIL'; EXCEPTION WHEN insufficient_privilege OR check_violation THEN RAISE NOTICE 'PASS cross-user write blocked'; END; END $$;
 DO $$ BEGIN BEGIN PERFORM 1 FROM tt_allowed_emails; RAISE EXCEPTION 'SHOULD FAIL'; EXCEPTION WHEN insufficient_privilege THEN RAISE NOTICE 'PASS allowed_emails not readable'; END; END $$;

@@ -11,6 +11,7 @@ import { syncDrift, reindexStep } from '../server/db.js';
 const toSql = (iso) => (iso ? new Date(iso).toISOString().slice(0, 19).replace('T', ' ') : null); // Postgres -> sqlite (UTC)
 const toIso = (s) => (s ? s.replace(' ', 'T') + 'Z' : null); // sqlite (UTC) -> Postgres
 const PERSIST_META = ['plan', 'resume'];
+const persists = (k) => PERSIST_META.includes(k) || k.startsWith('tk:'); // tk:<ticket> = priority, labels, subtasks, files
 
 /** Copy the shipped, read-only content DB to a private working file and open it. */
 export function openWorking(templatePath) {
@@ -44,7 +45,7 @@ export function hydrate(db, st) {
     const insBadge = db.prepare('INSERT OR IGNORE INTO badge_unlocks (key, family, tier, unlocked_at) VALUES (?,?,?,?)');
     for (const b of st.badges || []) insBadge.run(b.key, b.family, b.tier, toSql(b.at));
     const setMeta = db.prepare('INSERT INTO meta (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value');
-    for (const [k, v] of Object.entries(st.meta || {})) if (PERSIST_META.includes(k)) setMeta.run(k, v);
+    for (const [k, v] of Object.entries(st.meta || {})) if (persists(k)) setMeta.run(k, v);
     for (const id of touched) { syncDrift(db, id); reindexStep(db, id); } // edited text may carry 🔍 lines; notes are searchable
     const upDrift = db.prepare('UPDATE drift SET state=?, note=? WHERE hash=? AND step_id=?');
     for (const d of st.drift || []) { const id = idOf(d.t, d.k); if (id != null) upDrift.run(d.state, d.note || '', d.h, id); }
@@ -68,7 +69,7 @@ export function extract(db) {
   const drift = new Map();
   for (const r of db.prepare(`SELECT s.ticket_id t, s.key k, d.hash h, d.state, d.note FROM drift d JOIN steps s ON s.id=d.step_id WHERE d.state<>'open' OR d.note<>''`).all()) drift.set(`${r.t}|${r.k}|${r.h}`, { t: r.t, k: r.k, h: r.h, state: r.state, note: r.note });
   const meta = new Map();
-  for (const r of db.prepare('SELECT key, value FROM meta').all()) if (PERSIST_META.includes(r.key)) meta.set(r.key, r.value);
+  for (const r of db.prepare('SELECT key, value FROM meta').all()) if (persists(r.key)) meta.set(r.key, r.value);
   const badges = new Set(db.prepare('SELECT key FROM badge_unlocks').all().map((r) => r.key));
   return {
     steps, tickets, drift, meta, badges,

@@ -5,6 +5,8 @@ import { openModal } from './modal.js';
 import { enter } from './motion.js';
 import { todayStr, parse, fmtDate, dayDiff, nextMonday, addDaysStr, plural } from './dates.js';
 import { avatar } from './ui.js';
+import { openDrawer } from './drawer.js';
+import { roadmap, agenda, calendar } from './roadmap.js';
 
 const DAYS = [[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [0, 'Sun']];
 const STATE = { done: ['Done', 'done'], ahead: ['Ahead', 'done'], 'on-track': ['On track', 'accent'], behind: ['Behind', 'doing'], overdue: ['Overdue', 'blocked'], upcoming: ['Upcoming', 'muted'] };
@@ -195,33 +197,10 @@ function workload(sch) {
       h('span', { class: 'wl-t' }, h('strong', {}, `${m.tickets}`), h('span', { class: 'muted small' }, ` tickets · ${m.steps} steps · ${m.days} days`), h('div', { class: 'bar thin' }, h('i', { style: { width: (m.steps ? (m.stepsDone / m.steps) * 100 : 0) + '%', background: m.color } }))))));
 }
 
-/** Modal to change one ticket's owner / dates. */
-function openTask(t, sch, onChange) {
-  const team = sch.team;
-  const state = { member: t.manual.member ? t.member : '', due: t.due };
-  const sel = team.length > 1 ? h('select', { class: 'sel', onChange: (e) => (state.member = e.target.value) }, h('option', { value: '' }, 'Auto split'), team.map((m) => h('option', { value: m.id, selected: m.id === state.member }, m.name))) : null;
-  const due = h('input', { type: 'date', value: t.due, onInput: (e) => (state.due = e.target.value) });
-  const m = openModal(h('div', { class: 'pad task-pop' },
-    h('div', { class: 'kicker' }, t.id), h('h2', {}, t.title),
-    h('p', { class: 'muted' }, h('span', { class: 'st ' + t.status }, STATUS_LABEL[t.status]), ` · ${t.done}/${t.steps} steps · planned ${fmtDate(t.start)} → ${fmtDate(t.due)}`),
-    h('div', { class: 'tl-form' },
-      sel ? h('div', { class: 'tl-field' }, h('strong', {}, 'Owner'), sel) : null,
-      h('div', { class: 'tl-field' }, h('strong', {}, 'Due date'), due, h('span', { class: 'muted small' }, 'Moving the date moves the whole bar. Later tickets are not shifted.'))),
-    h('div', { class: 'row gap wrap' },
-      h('button', { class: 'btn primary', onClick: async () => {
-        const patch = { ticketId: t.id };
-        if (team.length > 1) patch.member = state.member || null;
-        if (state.due && state.due !== t.due) { const dd = Math.round((parse(state.due) - parse(t.due)) / 86400000); patch.due = state.due; patch.start = addDaysStr(t.start, dd); }
-        try { await api.planManual(patch, todayStr()); m.close(true); toast('Plan updated'); onChange(); } catch (e) { toast(e.message, 'err'); }
-      } }, 'Save'),
-      (t.manual.member || t.manual.due) ? h('button', { class: 'btn', onClick: async () => { try { await api.planManual({ ticketId: t.id, clear: true }, todayStr()); m.close(true); toast('Back to the automatic plan'); onChange(); } catch (e) { toast(e.message, 'err'); } } }, '↺ Reset to auto') : null,
-      h('a', { class: 'btn', href: `#/t/${encodeURIComponent(t.id)}`, onClick: () => m.close(true) }, 'Open ticket →'))), { label: 'Ticket plan' });
-}
-
 const ZOOMS = [14, 20, 28, 40, 56, 80];
 
 /** One lane per person; every ticket is a bar. Drag sideways to move it, onto another lane to reassign. */
-function taskGantt(sch, { member, ppd, onChange }) {
+function taskGantt(sch, { member, ppd, onChange, extras }) {
   const all = sch.sprints.flatMap((r) => r.schedule.map((t) => ({ ...t, sprint: r.id })));
   const t0 = [sch.plan.startDate, ...all.map((t) => t.start)].sort()[0];
   const t1 = [sch.plannedEnd, ...all.map((t) => t.due)].sort().at(-1);
@@ -264,7 +243,7 @@ function taskGantt(sch, { member, ppd, onChange }) {
         const late = t.status !== 'done' && t.due < today;
         const b = h('div', { class: 'tg-bar ' + t.status + (late ? ' late' : '') + ((t.manual.member || t.manual.due) ? ' pinned' : ''), tabindex: 0, role: 'button', style: { left: x(t.start) + 1 + 'px', width: w + 'px', top: place.get(t.id) * ROW + 5 + 'px' }, title: `${t.id} · ${t.title}\n${STATUS_LABEL[t.status]} · ${t.done}/${t.steps} steps\n${fmtDate(t.start)} → ${fmtDate(t.due)}${m && !solo ? ' · ' + m.name : ''}` },
           h('b', {}, shortId(t.id)), w > 120 ? h('span', {}, t.title) : null);
-        b.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTask(t, sch, onChange); } });
+        b.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrawer(t.id, { onChange }); } });
         b.addEventListener('pointerdown', (e) => {
           if (e.button !== 0) return;
           const sx = e.clientX, sy = e.clientY;
@@ -282,7 +261,7 @@ function taskGantt(sch, { member, ppd, onChange }) {
           const up = async (ev) => {
             b.removeEventListener('pointermove', move); document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up);
             for (const el of laneElsList) el.classList.remove('drop');
-            if (!moved) return openTask(t, sch, onChange);
+            if (!moved) return openDrawer(t.id, { onChange });
             b.classList.remove('drag');
             const dd = Math.round((ev.clientX - sx) / ppd);
             const ln = laneAt(ev);
@@ -301,7 +280,7 @@ function taskGantt(sch, { member, ppd, onChange }) {
         });
         return b;
       }));
-    return h('div', { class: 'tg-lane' }, solo ? null : h('div', { class: 'tg-lane-h' }, avatar(m, 'sm'), h('strong', {}, m.name), h('span', { class: 'muted small' }, `${m.tickets} tickets · ${m.steps} steps`)), body);
+    return h('div', { class: 'tg-lane' }, solo ? null : h('div', { class: 'tg-lane-h' }, m.kind === 'ai' ? h('span', { class: 'avatar ai sm', style: { '--mc': m.color } }, '✦') : avatar(m, 'sm'), h('strong', {}, m.name), h('span', { class: 'muted small' }, `${m.tickets} tickets · ${m.steps} steps`)), body);
   });
   const laneElsList = laneEls.map((l) => l.querySelector('.tg-lane-body'));
   const body = h('div', { class: 'tg-body', style: { width: W + 'px' } }, shade, seps,
@@ -353,20 +332,34 @@ export async function timelineView(root) {
   const projDiff = sch.projectedEnd && !allDone ? dayDiff(sch.plannedEnd, sch.projectedEnd) : null;
   const manualCount = Object.keys(sch.plan.manual).length;
 
-  let mode = ls('tlMode') === 'tasks' ? 'tasks' : 'sprints';
+  let mode = ['roadmap', 'lanes', 'calendar', 'agenda', 'sprints'].includes(ls('tlMode2')) ? ls('tlMode2') : window.innerWidth < 700 ? 'agenda' : 'roadmap';
   let member = '';
   let zoom = Math.max(0, Math.min(ZOOMS.length - 1, Number(ls('tlZoom') ?? 2)));
+  const extras = await api.extras().catch(() => ({}));
+  const first = sch.sprints.findIndex((r) => !r.history);
+  const rm = { ppd: ls('rmPpd') ? Number(ls('rmPpd')) : 30, open: new Set(sch.sprints.slice(Math.max(0, first), Math.max(0, first) + 2).map((r) => r.id)), first: true };
+  const cal = { month: sch.today.date.slice(0, 8) + '01', expanded: null };
   const view = h('div', {});
+  const open = (id) => openDrawer(id, { onChange: () => again() });
   const paint = () => {
+    const zbtn = (k, label) => h('button', { type: 'button', class: Math.round(rm.ppd) === ({ month: 8, week: 18, day: 34 })[k] ? 'on' : '', onClick: () => { rm.setZoom(({ month: 8, week: 18, day: 34 })[k]); ls('rmPpd', rm.ppd); paint(); } }, label);
     const toolbar = h('div', { class: 'tl-bar' },
-      h('div', { class: 'seg', role: 'tablist' }, [['sprints', '▭ Sprints'], ['tasks', '☰ Tasks']].map(([k, l]) => h('button', { role: 'tab', 'aria-selected': mode === k, class: mode === k ? 'on' : '', onClick: () => { mode = k; ls('tlMode', k); paint(); } }, l))),
-      multi ? h('div', { class: 'row wrap gap' }, h('button', { class: 'daychip sm' + (!member ? ' on' : ''), onClick: () => { member = ''; paint(); } }, 'Everyone'), sch.team.map((m) => h('button', { class: 'daychip sm' + (member === m.id ? ' on' : ''), style: { '--mc': m.color }, onClick: () => { member = member === m.id ? '' : m.id; paint(); } }, avatar(m, 'xs'), m.name))) : null,
+      h('div', { class: 'seg', role: 'tablist' }, [['roadmap', '▦ Roadmap'], ['lanes', '☰ Team lanes'], ['calendar', '▤ Calendar'], ['agenda', '☑ Agenda'], ['sprints', '▭ Sprints']].map(([k, l]) => h('button', { role: 'tab', 'aria-selected': mode === k, class: mode === k ? 'on' : '', onClick: () => { mode = k; ls('tlMode2', k); paint(); } }, l))),
+      mode === 'lanes' && multi ? h('div', { class: 'row wrap gap' }, h('button', { class: 'daychip sm' + (!member ? ' on' : ''), onClick: () => { member = ''; paint(); } }, 'Everyone'), sch.team.map((m) => h('button', { class: 'daychip sm' + (member === m.id ? ' on' : ''), style: { '--mc': m.color }, onClick: () => { member = member === m.id ? '' : m.id; paint(); } }, avatar(m, 'xs'), m.name))) : null,
       h('span', { class: 'grow' }),
-      mode === 'tasks' ? h('div', { class: 'row gap' }, h('button', { class: 'btn sm', title: 'Zoom out', disabled: zoom === 0, onClick: () => { zoom--; ls('tlZoom', zoom); paint(); } }, '−'), h('button', { class: 'btn sm', title: 'Zoom in', disabled: zoom === ZOOMS.length - 1, onClick: () => { zoom++; ls('tlZoom', zoom); paint(); } }, '+')) : null,
+      mode === 'roadmap' ? h('div', { class: 'row gap wrap' },
+        h('div', { class: 'seg sm' }, zbtn('month', 'Month'), zbtn('week', 'Week'), zbtn('day', 'Day'), h('button', { type: 'button', onClick: () => { rm.fit(); paint(); } }, 'Fit')),
+        h('button', { class: 'btn sm', type: 'button', onClick: () => rm.toToday() }, '◎ Today'),
+        h('button', { class: 'btn sm', type: 'button', title: 'Expand or collapse every sprint', onClick: () => { rm.open.size >= sch.sprints.length ? rm.open.clear() : sch.sprints.forEach((r) => rm.open.add(r.id)); rm.render(true); } }, '⇕')) : null,
+      mode === 'lanes' ? h('div', { class: 'row gap' }, h('button', { class: 'btn sm', title: 'Zoom out', disabled: zoom === 0, onClick: () => { zoom--; ls('tlZoom', zoom); paint(); } }, '−'), h('button', { class: 'btn sm', title: 'Zoom in', disabled: zoom === ZOOMS.length - 1, onClick: () => { zoom++; ls('tlZoom', zoom); paint(); } }, '+')) : null,
       manualCount ? h('button', { class: 'link', title: 'Remove every manual owner/date change', onClick: async () => { if (confirm(`Reset ${manualCount} manual change${manualCount === 1 ? '' : 's'} to the automatic plan?`)) { await api.planManualClear(); again(); } } }, `↺ Reset ${manualCount} manual change${manualCount === 1 ? '' : 's'}`) : null);
-    view.replaceChildren(h('section', { class: 'card' }, toolbar,
-      mode === 'sprints' ? h('div', {}, gantt(sch), h('div', { class: 'muted small' }, 'Bars show the planned window of each sprint; the fill is your real progress. Days off and non-working days are skipped.'))
-        : h('div', {}, taskGantt(sch, { member, ppd: ZOOMS[zoom], onChange: again }), h('div', { class: 'muted small' }, 'Each bar is a ticket. Click to edit, drag sideways to move it' + (multi ? ', or drop it on another person\'s lane to reassign.' : '.') + ' Shaded days are days off. 📌 = changed by you.'))));
+    const hint = (t) => h('div', { class: 'muted small tl-hint' }, t);
+    view.replaceChildren(h('section', { class: 'card tl-card' + (mode === 'roadmap' ? ' flush' : '') }, toolbar,
+      mode === 'roadmap' ? h('div', {}, roadmap(sch, { extras, openTicket: open, onChange: again, state: rm }), hint('Click a sprint to fold it. Click a bar to open the task drawer, drag it to move it, drag its edges to change the dates. ◆ = sprint end, orange tick = where the plan says you should be. Hatched bars were finished earlier.'))
+      : mode === 'lanes' ? h('div', {}, taskGantt(sch, { member, ppd: ZOOMS[zoom], onChange: again, extras }), hint('Each bar is a ticket. Click to open it, drag sideways to move it' + (multi ? ', or drop it on another lane to reassign (for example to Claude).' : '.') + ' Shaded days are days off. 📌 = changed by you.'))
+      : mode === 'calendar' ? calendar(sch, { extras, openTicket: open, state: cal })
+      : mode === 'agenda' ? agenda(sch, { extras, openTicket: open })
+      : h('div', {}, gantt(sch), hint('Bars show the planned window of each sprint; the fill is your real progress. Days off and non-working days are skipped.'))));
   };
   paint();
 

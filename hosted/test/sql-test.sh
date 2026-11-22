@@ -9,6 +9,8 @@ P="$P -d tt_test"
 $P -f "$D/test/stub-supabase.sql" 2>&1 | grep -v NOTICE || true
 $P -f "$D/sql/001_init.sql"
 $P -f "$D/sql/001_init.sql"
+$P -f "$D/sql/003_storage.sql"
+$P -f "$D/sql/003_storage.sql"
 $P -f "$D/sql/002_owner.sql"
 echo "migration (twice) + owner seed OK"
 PGOPTIONS="-c client_min_messages=notice" psql -v ON_ERROR_STOP=1 -q -X -d tt_test -f "$D/test/sql-checks.sql" 2>&1 | grep -v "^$" | grep -v "^SET$"

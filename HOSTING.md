@@ -27,6 +27,9 @@ Optional: `APP_TZ` (time zone for streak days, default UTC; already set to Afric
 - Row-level security keeps people apart in the database; sign-up is limited to emails in `tt_allowed_emails`.
 - To change the tutorial: edit `content/*.md`, redeploy. Edits people made to a slide are kept.
 
+## File uploads
+The build also applies `hosted/sql/003_storage.sql` (private bucket `task-files` + per-user policies). If the build log shows a storage warning, run that file once in the Supabase SQL editor. The Content-Security-Policy in `vercel.json` already allows `https://*.supabase.co` images.
+
 ## Known limits
 
 - Free Supabase projects pause after about a week without use (first visit afterwards is slow).

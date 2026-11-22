@@ -27,7 +27,8 @@ Richer cards (assignee, subtasks, attachments, due chip, labels) · WIP limit pe
 
 ### Delivery status
 - [x] **P1 Smart dates** (anchor modes, history from the activity log, partial sprints, target end date, forecast range, 18 scenario tests) and **version badge**: built in 0.39.1.
-- [ ] P2 drawer foundation · [ ] P3 subtasks / labels / AI assignee · [ ] P4 attachments · [ ] P5 timeline redesign · [ ] P6 board polish · [ ] P7 hardening
+- [x] P2 task drawer (opens from board cards and timeline bars) · [x] P3 subtasks, priority, labels, blocked reason, assign to you or Claude (AI) · [x] P4 attachments (local disk, or Supabase Storage free tier when hosted; images compressed to WebP) · [x] P5 Gantt roadmap + team lanes + calendar + agenda + sprints views · [x] P6 board polish (priority/labels/subtasks on cards, WIP limits, grouping, saved views, collapse, density, review ribbon) · [x] P7 hardening: 41 tests, storage RLS checks, hosted upload e2e.
+- **Not built (honest list):** shareable `?t=` drawer link, per-ticket comments/activity feed, burndown mini-chart, custom saved filters, timeline minimap, dependency connectors, .ics export, scenario planner, board undo for moves.
 
 ---
 

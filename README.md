@@ -130,3 +130,10 @@ See `HOSTING.md` (v0.39): Vercel + Supabase Postgres, email/password sign-in, in
 ## v0.39 - Hosted version
 
 Vercel + Supabase, email/password sign-in (invite-only), per-person data, first-login question (start from zero or from a ticket, optionally marking everything before it as done), owner invites in Settings. Setup: `HOSTING.md`.
+
+## v0.39.x - Task drawer, Gantt roadmap, smart dates
+- **Task drawer**: click a board card or a timeline bar. Assign to yourself or to your AI assistant (add "Claude" from the drawer), dates, priority, labels, blocked reason, subtasks, notes, steps, files and images, plus a one-click "Brief for Claude" prompt. Esc closes it.
+- **Files**: any type, images are shrunk to WebP automatically (25 MB limit). Local app stores them in the data folder; the hosted app uses a private Supabase Storage bucket (`task-files`, free tier 1 GB), one folder per user.
+- **Timeline**: Roadmap (Gantt, drag to move/resize, zoom, today line, forecast line), Team lanes, Calendar, Agenda (default on phones), Sprints.
+- **Smart start date**: "Continue from where I am" (default) or "Lay everything out from sprint 1", optional target end date, finished sprints use their real completion dates.
+- **Board**: grouping, saved views, WIP limits, collapsible columns, compact mode.

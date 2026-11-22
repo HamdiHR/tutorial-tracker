@@ -17,6 +17,12 @@ try {
   await client.connect();
   await client.query(fs.readFileSync(path.join(root, 'hosted/sql/001_init.sql'), 'utf8'));
   console.log('migrate: schema applied');
+  try {
+    await client.query(fs.readFileSync(path.join(root, 'hosted/sql/003_storage.sql'), 'utf8'));
+    console.log('migrate: file storage bucket + policies applied');
+  } catch (e) {
+    console.warn('migrate: WARNING file storage not set up (attachments stay disabled until it is):', e.message);
+  }
 
   const owner = String(env.OWNER_EMAIL || '').trim().toLowerCase();
   if (owner) {

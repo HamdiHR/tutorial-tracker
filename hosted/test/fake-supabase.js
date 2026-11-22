@@ -16,11 +16,12 @@ const asUser = (uid, body, vars) => psql(`SET ROLE authenticated; SET request.jw
 
 export function startFake() {
   const log = { invites: [] };
+  const store = new Map(); // storage objects
   const passwords = new Map(); // email -> password (browser tests only)
   const grant = (id, email) => { const t = `test.${id}.${email}`; return { access_token: t, refresh_token: t, expires_in: 3600, token_type: 'bearer', user: { id, email } }; };
   const server = http.createServer((req, res) => {
     res.setHeader('access-control-allow-origin', '*');
-    res.setHeader('access-control-allow-headers', 'apikey, authorization, content-type');
+    res.setHeader('access-control-allow-headers', 'apikey, authorization, content-type, cache-control, x-upsert');
     res.setHeader('access-control-allow-methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
     const chunks = [];
@@ -28,8 +29,30 @@ export function startFake() {
     req.on('end', () => {
       const out = (status, obj) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(obj === undefined ? '' : JSON.stringify(obj)); };
       try {
-        const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : undefined;
         const u = new URL(req.url, 'http://x');
+        // Storage emulation: private bucket, owner-only paths (the real RLS is tested in sql-checks.sql).
+        if (u.pathname.startsWith('/storage/v1/object/')) {
+          const bearerT = /^Bearer (.+)$/.exec(req.headers.authorization || '')?.[1] || '';
+          const who = /^test\.([0-9a-f-]{36})\./.exec(bearerT)?.[1];
+          const raw = Buffer.concat(chunks);
+          const rest = u.pathname.slice('/storage/v1/object/'.length);
+          const sendRaw = (st, buf, type) => { res.writeHead(st, { 'content-type': type || 'application/json' }); res.end(buf); };
+          if (rest.startsWith('sign/task-files/') && req.method === 'POST') {
+            const pth = decodeURIComponent(rest.slice('sign/task-files/'.length));
+            if (!who || !pth.startsWith(who + '/')) return sendRaw(400, JSON.stringify({ message: 'denied' }));
+            if (!store.has(pth)) return sendRaw(404, JSON.stringify({ message: 'Object not found' }));
+            return sendRaw(200, JSON.stringify({ signedURL: `/object/sign/task-files/${rest.slice('sign/task-files/'.length)}?token=t` }));
+          }
+          if (rest.startsWith('sign/task-files/') && req.method === 'GET') { const o = store.get(decodeURIComponent(rest.slice('sign/task-files/'.length))); return o ? sendRaw(200, o.buf, o.type) : sendRaw(404, '{}'); }
+          if (rest.startsWith('task-files/')) {
+            const pth = decodeURIComponent(rest.slice('task-files/'.length));
+            if (!who || !pth.startsWith(who + '/')) return sendRaw(400, JSON.stringify({ message: 'new row violates row-level security policy' }));
+            if (req.method === 'POST') { store.set(pth, { buf: raw, type: req.headers['content-type'] }); return sendRaw(200, JSON.stringify({ Key: 'task-files/' + pth })); }
+            if (req.method === 'DELETE') { store.delete(pth); return sendRaw(200, '{}'); }
+          }
+          return sendRaw(404, JSON.stringify({ message: 'fake storage: unhandled' }));
+        }
+        const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : undefined;
         const bearer = /^Bearer (.+)$/.exec(req.headers.authorization || '')?.[1] || '';
         const isService = req.headers.apikey === SERVICE;
         if (u.pathname === '/auth/v1/user') {

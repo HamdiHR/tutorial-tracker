@@ -85,7 +85,8 @@ export function createServer(db, cfg) {
         if (out && out.__raw) {
           return send(res, 200, out.body, {
             'Content-Type': out.type,
-            'Content-Disposition': `attachment; filename="${out.filename.replace(/"/g, '')}"`,
+            'Content-Disposition': `${out.inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(out.filename)}`,
+            'Content-Security-Policy': "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox",
           });
         }
         return sendJson(req, res, 200, out);

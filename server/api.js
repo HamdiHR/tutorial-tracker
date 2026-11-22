@@ -5,6 +5,7 @@ import { importFiles, readContentDir, exportSprintMarkdown, exportAllToDir } fro
 import { bulk, undoBulk, applyTicketStatus } from './progress.js';
 import { award, evaluate } from './badges.js';
 import { cleanPlan, computeSchedule, validDate } from './plan.js';
+import { readExtras, writeExtras, normalize, summary as extrasSummary, saveLocalFile, localPath, isInline, KEY as EXTRA_KEY } from './extras.js';
 
 const STATUSES = ['todo', 'doing', 'done', 'blocked', 'test', 'pending'];
 // Every progress-changing response carries any newly earned badges and the fresh player card (XP / level),
@@ -151,7 +152,7 @@ export function createApi(db, cfg) {
     const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const sch = computeSchedule(plan, sprintsForPlan(), today, { daily: dailySteps() });
     const t = sch.sprints.flatMap((r) => r.schedule).find((x) => x.id === id);
-    return { team: sch.team.map(({ id: mid, name, color }) => ({ id: mid, name, color })), ticket: t ? { member: t.member, due: t.due, start: t.start, manual: t.manual } : null };
+    return { team: sch.team.map(({ id: mid, name, color, kind }) => ({ id: mid, name, color, kind })), ticket: t ? { member: t.member, due: t.due, start: t.start, manual: t.manual } : null };
   }
 
   function ticketDetail(id) {
@@ -216,6 +217,57 @@ export function createApi(db, cfg) {
   on('GET', '/api/health', () => ({ ok: true }));
   on('GET', '/api/config', () => ({ hosted: false, version: cfg.version }));
   on('GET', '/api/overview', () => overview());
+
+  // ---- per-ticket extras (priority, labels, subtasks, files, blocked reason)
+  const hosted = !!cfg.hosted;
+  on('GET', '/api/extras', () => extrasSummary(db));
+  on('GET', '/api/tickets/([^/]+)/extras', ({ p }) => {
+    const id = decodeURIComponent(p[0]);
+    if (!q('SELECT 1 FROM tickets WHERE id=?').get(id)) throw notFound('Unknown ticket');
+    return readExtras(db, id);
+  });
+  on('PUT', '/api/tickets/([^/]+)/extras', ({ p, body }) => {
+    const id = decodeURIComponent(p[0]);
+    if (!q('SELECT 1 FROM tickets WHERE id=?').get(id)) throw notFound('Unknown ticket');
+    const cur = readExtras(db, id);
+    // Locally files change only through the upload/delete routes; hosted clients manage their own storage objects.
+    const next = normalize(body, { files: hosted ? body.f : cur.f });
+    writeExtras(db, id, next);
+    return next;
+  });
+  on('POST', '/api/tickets/([^/]+)/files', ({ p, body }) => {
+    if (hosted) throw bad('Upload straight to storage in the hosted version.');
+    const id = decodeURIComponent(p[0]);
+    if (!q('SELECT 1 FROM tickets WHERE id=?').get(id)) throw notFound('Unknown ticket');
+    const cur = readExtras(db, id);
+    if (cur.f.length >= 30) throw bad('A ticket can hold up to 30 files.');
+    let f;
+    try { f = saveLocalFile(cfg, body); } catch (e) { throw bad(e.message); }
+    cur.f.push(f);
+    writeExtras(db, id, cur);
+    log(db, 'file', id, null, f.n);
+    return { file: f, extras: cur };
+  });
+  on('DELETE', '/api/tickets/([^/]+)/files/([a-f0-9]+)', ({ p }) => {
+    const id = decodeURIComponent(p[0]);
+    const cur = readExtras(db, id);
+    const f = cur.f.find((x) => x.i === p[1]);
+    if (!f) throw notFound('Unknown file');
+    cur.f = cur.f.filter((x) => x !== f);
+    writeExtras(db, id, cur);
+    const fp = localPath(cfg, f.i);
+    if (fp) fs.rmSync(fp, { force: true });
+    return { extras: cur };
+  });
+  on('GET', '/api/files/([a-f0-9]+)', ({ p }) => {
+    if (hosted) throw notFound();
+    const fp = localPath(cfg, p[0]);
+    if (!fp || !fs.existsSync(fp)) throw notFound('Unknown file');
+    let meta = null;
+    for (const r of db.prepare(`SELECT value FROM meta WHERE key LIKE 'tk:%'`).all()) { try { meta = JSON.parse(r.value).f?.find((x) => x.i === p[0]) || meta; } catch {} }
+    if (!meta) throw notFound('Unknown file');
+    return { __raw: true, body: fs.readFileSync(fp), type: isInline(meta.m) ? meta.m : 'application/octet-stream', filename: meta.n, inline: isInline(meta.m) };
+  });
 
   on('GET', '/api/tickets/([^/]+)', ({ p }) => ticketDetail(decodeURIComponent(p[0])));
   on('PUT', '/api/tickets/([^/]+)/note', ({ p, body }) => {

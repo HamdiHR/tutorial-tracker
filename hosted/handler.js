@@ -14,7 +14,7 @@ export function createHosted({ env = process.env, contentPath, fetchImpl = fetch
   const anon = env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || env.SUPABASE_PUBLISHABLE_KEY || env.NEXT_PUBLIC_SUPABASE_ANON_KEY || env.SUPABASE_ANON_KEY || '';
   const service = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '';
   const siteUrl = (env.SITE_URL || (env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${env.VERCEL_PROJECT_PRODUCTION_URL}` : '')).replace(/\/$/, '');
-  const cfg = { version, dataDir: '', dbPath: '', contentDir: '', exportDir: '' };
+  const cfg = { version, hosted: true, dataDir: '', dbPath: '', contentDir: '', exportDir: '' };
   const verified = new Map();
 
   const configured = () => { if (!base || !anon) throw new HttpError(503, 'Hosting is not configured (missing Supabase settings).'); };
