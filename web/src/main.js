@@ -95,6 +95,8 @@ async function boot() {
   window.addEventListener('hashchange', route);
   initPerf();
   route();
+  // Shareable task link: /?t=<ticket id> opens that task's drawer.
+  try { const t = new URL(location.href).searchParams.get('t'); if (t) import('./drawer.js').then((m) => m.openDrawer(t)); } catch {}
 }
 boot();
 // Warm the most used screen while the browser is idle, so the first click is instant.

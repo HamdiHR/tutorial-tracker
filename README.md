@@ -137,3 +137,4 @@ Vercel + Supabase, email/password sign-in (invite-only), per-person data, first-
 - **Timeline**: Roadmap (Gantt, drag to move/resize, zoom, today line, forecast line), Team lanes, Calendar, Agenda (default on phones), Sprints.
 - **Smart start date**: "Continue from where I am" (default) or "Lay everything out from sprint 1", optional target end date, finished sprints use their real completion dates.
 - **Board**: grouping, saved views, WIP limits, collapsible columns, compact mode.
+- **0.39.2**: task links (`?t=`), comments per task, burndown chart on the timeline, `.ics` export (📅 button on the timeline).

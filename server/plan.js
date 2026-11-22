@@ -256,6 +256,26 @@ export function computeSchedule(planIn, sprints, today, extra = {}) {
 
   const all = rows.flatMap((r) => r.schedule);
   const dueNow = all.filter((t) => t.due <= tdy && t.status !== 'done');
+  // Burndown: steps left per day, planned (each ticket finishes on its due date) vs real (walked back from today using the activity log).
+  const liveT = all.filter((t) => !t.history);
+  let burn = null;
+  if (liveT.length) {
+    const scope = liveT.reduce((a, t) => a + t.steps, 0);
+    const left = scope - liveT.reduce((a, t) => a + Math.min(t.done, t.steps), 0);
+    const first = liveT.reduce((m, t) => (t.start < m ? t.start : m), liveT[0].start);
+    const lastD = [plannedEnd, projectedEnd !== 'done' ? projectedEnd : null, tdy].filter(Boolean).reduce((m, d) => (d > m ? d : m));
+    const from = first < addDays(tdy, -45) ? addDays(tdy, -45) : first;
+    const days = [], planned = [], actualArr = [];
+    for (let d = from, k = 0; d <= lastD && k < 150; d = addDays(d, 1), k++) {
+      days.push(d);
+      planned.push(scope - liveT.filter((t) => t.due <= d).reduce((a, t) => a + t.steps, 0));
+      if (d <= tdy) {
+        let after = 0; for (let x = addDays(d, 1); x <= tdy; x = addDays(x, 1)) after += daily[x] || 0;
+        actualArr.push(Math.min(scope, left + after));
+      }
+    }
+    burn = { scope, left, days, planned, actual: actualArr };
+  }
   const workDaysTotal = rows.reduce((a, r) => a + r.days, 0);
   return {
     plan,
@@ -263,6 +283,7 @@ export function computeSchedule(planIn, sprints, today, extra = {}) {
     sprints: rows,
     plannedEnd,
     projectedEnd,
+    burn,
     forecast,
     fit,
     anchor: plan.anchor,

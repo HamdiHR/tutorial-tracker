@@ -7,6 +7,8 @@ import { todayStr, parse, fmtDate, dayDiff, nextMonday, addDaysStr, plural } fro
 import { avatar } from './ui.js';
 import { openDrawer } from './drawer.js';
 import { roadmap, agenda, calendar } from './roadmap.js';
+import { burndown } from './burndown.js';
+import { downloadIcs } from './ics.js';
 
 const DAYS = [[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [0, 'Sun']];
 const STATE = { done: ['Done', 'done'], ahead: ['Ahead', 'done'], 'on-track': ['On track', 'accent'], behind: ['Behind', 'doing'], overdue: ['Overdue', 'blocked'], upcoming: ['Upcoming', 'muted'] };
@@ -373,13 +375,14 @@ export async function timelineView(root) {
   };
 
   root.replaceChildren(h('div', { class: 'dash' },
-    h('div', { class: 'sec-head' }, h('h1', { class: 'page-title' }, 'Timeline'), h('div', { class: 'row gap' }, h('a', { class: 'btn', href: '#/board' }, '▦ Board'), h('button', { class: 'btn', onClick: edit }, '✎ Edit plan'), h('button', { class: 'link', onClick: reset }, 'Remove plan'))),
+    h('div', { class: 'sec-head' }, h('h1', { class: 'page-title' }, 'Timeline'), h('div', { class: 'row gap' }, h('a', { class: 'btn', href: '#/board' }, '▦ Board'), h('button', { class: 'btn', onClick: edit }, '✎ Edit plan'), h('button', { class: 'btn', title: 'Download the schedule as a calendar file (.ics)', onClick: () => downloadIcs(sch) }, '📅 Export .ics'), h('button', { class: 'link', onClick: reset }, 'Remove plan'))),
     h('section', { class: 'stats tl-stats' },
       tile('🏁', 'Planned finish', fmtDate(sch.plannedEnd, true), `${multi ? `team of ${sch.team.length} · ` : ''}${plural(sch.sprints.length, 'sprint')} · ${plural(sch.workDaysTotal, 'working day')} · ≈ ${plural(sch.weeks, 'week')}`),
       tile('📈', 'At your pace', allDone ? 'Finished 🎉' : sch.projectedEnd ? fmtDate(sch.projectedEnd, true) : 'Not enough data yet', allDone ? '' : sch.projectedEnd ? ((projDiff > 0 ? `${plural(projDiff, 'day')} later than planned` : projDiff < 0 ? `${plural(-projDiff, 'day')} earlier than planned` : 'right on plan') + (sch.forecast?.fast && sch.forecast?.slow && sch.forecast.fast !== sch.forecast.slow ? ` · range ${fmtDate(sch.forecast.fast)} – ${fmtDate(sch.forecast.slow)}` : '')) : 'needs a few working days of progress', projDiff > 0 ? 'late' : ''),
       tile(worst === 'behind' || worst === 'overdue' ? '🐢' : worst === 'ahead' ? '🚀' : '🎯', 'Today vs plan', delta === 0 ? 'On plan' : `${delta > 0 ? '+' : ''}${delta} steps`, `${td.actualSteps} done · plan says ${td.expectedSteps}`, worst),
       tile('📌', td.isWorkday ? 'Due by today' : 'Due so far', plural(td.dueTickets, 'ticket'), td.overdue ? `${td.overdue} overdue` : td.dueTickets ? 'due today or earlier' : 'nothing pending', td.overdue ? 'late' : '')),
     view,
+    burndown(sch),
     multi ? h('section', { class: 'card' }, h('h3', {}, 'Team workload'), workload(sch), h('div', { class: 'muted small' }, 'Steps per person per sprint (bar height) and in total. The split balances steps per available day, so people with fewer working days get fewer tickets.')) : null,
     td.next.length ? h('section', { class: 'card' }, h('h3', {}, 'Coming up'), h('div', { class: 'list' }, td.next.map((t) => h('a', { class: 'row-link', href: `#/t/${encodeURIComponent(t.id)}` }, h('i', { class: 'dot ' + t.status }), h('span', { class: 'chip' }, t.id), h('span', { class: 'grow ell' }, t.title), multi ? avatar(teamOf(sch, t.member), 'sm') : null, h('span', { class: 'muted small' + (t.due < td.date ? ' late-t' : '') }, (t.due < td.date ? 'was due ' : 'due ') + fmtDate(t.due)))))) : null,
     h('section', { class: 'card' }, h('h3', {}, 'Sprint by sprint'), sprintTable(sch))));

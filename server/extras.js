@@ -9,13 +9,13 @@ import { getMeta, setMeta } from './db.js';
 
 export const KEY = (id) => `tk:${id}`;
 export const MAX_FILE = 25 * 1024 * 1024;
-const MAX_SUB = 100, MAX_FILES = 30, MAX_LABELS = 8;
+const MAX_SUB = 100, MAX_FILES = 30, MAX_LABELS = 8, MAX_COMMENTS = 200;
 const SAFE_INLINE = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf']);
 export const isInline = (mime) => SAFE_INLINE.has(mime);
 const rid = () => randomBytes(6).toString('hex');
 const str = (v, n) => String(v ?? '').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, n);
 
-export const EMPTY = () => ({ p: 0, l: [], s: [], f: [], b: '' });
+export const EMPTY = () => ({ p: 0, l: [], s: [], f: [], b: '', c: [] });
 
 export function readExtras(db, id) {
   let v = null;
@@ -35,6 +35,13 @@ export function normalize(v, { keepFiles = false, files = null } = {}) {
     return { i, t: str(x?.t, 200), d: x?.d ? 1 : 0 };
   }).filter((x) => x.t);
   o.b = str(v.b, 200);
+  const cseen = new Set();
+  o.c = (Array.isArray(v.c) ? v.c : []).slice(-MAX_COMMENTS).map((x) => {
+    const i = typeof x?.i === 'string' && /^[a-z0-9]{4,16}$/.test(x.i) && !cseen.has(x.i) ? x.i : rid();
+    cseen.add(i);
+    const at = Number(x?.at);
+    return { i, w: x?.w === 'ai' ? 'ai' : 'me', t: String(x?.t ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').trim().slice(0, 2000), at: Number.isFinite(at) && at > 0 ? Math.floor(at) : Date.now() };
+  }).filter((x) => x.t);
   const src = files ?? (keepFiles ? v.f : []);
   o.f = (Array.isArray(src) ? src : []).slice(0, MAX_FILES).map((x) => {
     const k = x?.k === 'sb' ? 'sb' : 'local';
@@ -45,7 +52,7 @@ export function normalize(v, { keepFiles = false, files = null } = {}) {
   return o;
 }
 
-const isEmpty = (o) => !o.p && !o.l.length && !o.s.length && !o.f.length && !o.b;
+const isEmpty = (o) => !o.p && !o.l.length && !o.s.length && !o.f.length && !o.b && !o.c.length;
 
 export function writeExtras(db, id, o) {
   if (isEmpty(o)) db.prepare('DELETE FROM meta WHERE key=?').run(KEY(id));
@@ -57,7 +64,7 @@ export function summary(db) {
   const out = {};
   for (const r of db.prepare(`SELECT key, value FROM meta WHERE key LIKE 'tk:%'`).all()) {
     let o; try { o = normalize(JSON.parse(r.value), { keepFiles: true }); } catch { continue; }
-    out[r.key.slice(3)] = { p: o.p, l: o.l, sd: o.s.filter((x) => x.d).length, st: o.s.length, fn: o.f.length, img: o.f.filter((f) => f.m.startsWith('image/')).length, b: o.b };
+    out[r.key.slice(3)] = { p: o.p, l: o.l, sd: o.s.filter((x) => x.d).length, st: o.s.length, fn: o.f.length, cn: o.c.length, img: o.f.filter((f) => f.m.startsWith('image/')).length, b: o.b };
   }
   return out;
 }

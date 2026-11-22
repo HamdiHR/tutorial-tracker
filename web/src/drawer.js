@@ -53,11 +53,13 @@ export async function openDrawer(ticketId, { onChange } = {}) {
   let d, extras, schedule = null, plan = null;
   const root = h('aside', { class: 'drawer', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Task ' + ticketId, tabindex: '-1' }, h('div', { class: 'dr-loading' }, 'Loading…'));
   const back = h('div', { class: 'dr-back' });
+  try { const u = new URL(location.href); u.searchParams.set('t', ticketId); history.replaceState(null, '', u); } catch {}
   let closed = false;
   const prevFocus = document.activeElement;
   const close = () => {
     if (closed) return;
     closed = true;
+    try { const u = new URL(location.href); if (u.searchParams.get('t') === ticketId) { u.searchParams.delete('t'); history.replaceState(null, '', u); } } catch {}
     document.removeEventListener('keydown', onKey, true);
     document.removeEventListener('paste', onPaste, true);
     root.classList.remove('in'); back.classList.remove('in');
@@ -88,7 +90,7 @@ export async function openDrawer(ticketId, { onChange } = {}) {
   } catch (e) { root.replaceChildren(h('div', { class: 'dr-loading' }, e.message)); return; }
 
   const saveExtras = debounce(async () => {
-    try { extras = { ...extras, ...(await api.saveExtras(ticketId, { p: extras.p, l: extras.l, s: extras.s, b: extras.b, ...(hosted ? { f: extras.f } : {}) })), ...(hosted ? {} : {}) }; notify('extras'); } catch (e) { toast(e.message, 'err'); }
+    try { extras = { ...extras, ...(await api.saveExtras(ticketId, { p: extras.p, l: extras.l, s: extras.s, b: extras.b, c: extras.c, ...(hosted ? { f: extras.f } : {}) })), ...(hosted ? {} : {}) }; notify('extras'); } catch (e) { toast(e.message, 'err'); }
   }, 350);
   const touch = () => { saveExtras(); };
 
@@ -191,7 +193,7 @@ export async function openDrawer(ticketId, { onChange } = {}) {
       try {
         const r = await files.upload(ticketId, f, hosted);
         if (r.extras) extras = { ...extras, f: r.extras.f };
-        else { extras.f = [...extras.f, r.file]; await api.saveExtras(ticketId, { p: extras.p, l: extras.l, s: extras.s, b: extras.b, f: extras.f }); }
+        else { extras.f = [...extras.f, r.file]; await api.saveExtras(ticketId, { p: extras.p, l: extras.l, s: extras.s, b: extras.b, c: extras.c, f: extras.f }); }
         notify('extras');
       } catch (e) { toast(e.message, 'err'); }
       busy--; paintFiles();
@@ -208,7 +210,7 @@ export async function openDrawer(ticketId, { onChange } = {}) {
   const remove = async (f) => {
     if (!confirm(`Delete "${f.n}"?`)) return;
     try {
-      if (hosted) { await files.removeObject(f); extras.f = extras.f.filter((x) => x.i !== f.i); await api.saveExtras(ticketId, { p: extras.p, l: extras.l, s: extras.s, b: extras.b, f: extras.f }); }
+      if (hosted) { await files.removeObject(f); extras.f = extras.f.filter((x) => x.i !== f.i); await api.saveExtras(ticketId, { p: extras.p, l: extras.l, s: extras.s, b: extras.b, c: extras.c, f: extras.f }); }
       else extras = { ...extras, f: (await api.deleteFile(ticketId, f.i)).extras.f };
       paintFiles(); notify('extras');
     } catch (e) { toast(e.message, 'err'); }
@@ -239,6 +241,31 @@ export async function openDrawer(ticketId, { onChange } = {}) {
   noteTa.addEventListener('input', () => { noteState.textContent = 'Typing…'; saveNote(); });
   noteTa.addEventListener('blur', () => saveNote.flush());
 
+  // comments
+  const cBox = h('div', { class: 'dr-comments' });
+  const cTa = h('textarea', { class: 'note-ta', rows: 2, placeholder: 'Write a comment, or paste what Claude answered…', 'aria-label': 'New comment' });
+  let cWho = 'me';
+  const ago = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : new Date(t).toLocaleDateString(); };
+  const paintComments = () => {
+    const list = extras.c || [];
+    cBox.replaceChildren(
+      list.length ? h('ul', { class: 'cm-list' }, ...list.map((c) => h('li', { class: 'cm ' + c.w },
+        h('div', { class: 'cm-h' }, h('b', {}, c.w === 'ai' ? '✦ Claude' : 'You'), h('span', { class: 'muted small' }, ago(c.at)), h('span', { class: 'sp' }),
+          h('button', { class: 'icon-btn sm', type: 'button', 'aria-label': 'Delete comment', onClick: async () => { try { extras.c = list.filter((x) => x.i !== c.i); await persistC(); } catch (e) { toast(e.message, 'err'); } } }, '✕')),
+        h('p', { class: 'cm-t' }, c.t)))) : h('p', { class: 'muted small' }, 'No comments yet. Use them as a log: what you tried, what Claude produced, what to check next.'),
+      cTa,
+      h('div', { class: 'row gap' },
+        h('select', { class: 'sel', 'aria-label': 'Comment as', onChange: (e) => { cWho = e.target.value; } }, h('option', { value: 'me', selected: cWho === 'me' }, 'As me'), h('option', { value: 'ai', selected: cWho === 'ai' }, 'As Claude')),
+        h('button', { class: 'btn sm primary', type: 'button', onClick: async () => {
+          const t = cTa.value.trim(); if (!t) return;
+          try { extras.c = [...(extras.c || []), { i: Math.random().toString(36).slice(2, 10), w: cWho, t, at: Date.now() }]; await persistC(); cTa.value = ''; } catch (e) { toast(e.message, 'err'); }
+        } }, 'Add comment')));
+  };
+  const persistC = async () => {
+    const r = await api.saveExtras(ticketId, { p: extras.p, l: extras.l, s: extras.s, b: extras.b, c: extras.c, ...(hosted ? { f: extras.f } : {}) });
+    extras.c = r.c || []; paintComments(); notify('extras');
+  };
+
   // steps
   const stepsBox = h('ul', { class: 'dr-steps' });
   const paintSteps = () => stepsBox.replaceChildren(...d.steps.filter((s) => s.kind === 'step' || s.kind === 'verify').map((s) => h('li', { class: s.done ? 'done' : '' },
@@ -261,7 +288,7 @@ export async function openDrawer(ticketId, { onChange } = {}) {
     h('header', { class: 'dr-head' },
       h('div', { class: 'dr-top' }, h('span', { class: 'kicker' }, `S${d.ticket.sprint.id} · ${d.ticket.id}`), status, h('span', { class: 'sp' }), h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close', title: 'Close (Esc)', onClick: close }, '✕')),
       h('h2', {}, d.ticket.title), prog,
-      h('div', { class: 'row gap wrap' }, statusSel, h('button', { class: 'btn sm', type: 'button', onClick: brief, title: 'Copies a ready-to-paste prompt with the steps, your notes and subtasks' }, '✦ Brief for Claude'), h('a', { class: 'btn sm', href: `#/t/${encodeURIComponent(ticketId)}`, onClick: close }, 'Open full page ↗'))),
+      h('div', { class: 'row gap wrap' }, statusSel, h('button', { class: 'btn sm', type: 'button', onClick: brief, title: 'Copies a ready-to-paste prompt with the steps, your notes and subtasks' }, '✦ Brief for Claude'), h('button', { class: 'btn sm', type: 'button', title: 'Copy a link that opens this task', onClick: async () => { const u = new URL(location.href); u.hash = ''; u.search = ''; u.searchParams.set('t', ticketId); toast((await copy(u.toString())) ? 'Link copied.' : 'Could not copy the link.', ''); } }, '🔗 Copy link'), h('a', { class: 'btn sm', href: `#/t/${encodeURIComponent(ticketId)}`, onClick: close }, 'Open full page ↗'))),
     h('div', { class: 'dr-body' },
       blocked,
       sec('Assigned to', whoBox),
@@ -270,6 +297,7 @@ export async function openDrawer(ticketId, { onChange } = {}) {
       sec('Subtasks', subBox),
       sec('Files & images', filesBox),
       sec('Notes', noteTa, noteState),
+      sec('Comments', cBox),
       sec('Steps', stepsBox)));
-  paintHead(); paintWho(); paintDates(); paintPrio(); paintLabels(); paintBlocked(); paintSubs(); paintFiles(); paintSteps();
+  paintHead(); paintWho(); paintDates(); paintPrio(); paintLabels(); paintBlocked(); paintSubs(); paintFiles(); paintComments(); paintSteps();
 }

@@ -231,7 +231,7 @@ export function createApi(db, cfg) {
     if (!q('SELECT 1 FROM tickets WHERE id=?').get(id)) throw notFound('Unknown ticket');
     const cur = readExtras(db, id);
     // Locally files change only through the upload/delete routes; hosted clients manage their own storage objects.
-    const next = normalize(body, { files: hosted ? body.f : cur.f });
+    const next = normalize({ ...body, c: body.c === undefined ? cur.c : body.c }, { files: hosted ? body.f : cur.f });
     writeExtras(db, id, next);
     return next;
   });

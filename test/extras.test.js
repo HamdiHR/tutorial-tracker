@@ -82,3 +82,11 @@ test('hosted-style files: only strict storage paths are accepted', () => {
   assert.equal(o.f.length, 1);
   assert.equal(o.f[0].p, `${uid}/S1-T01/a1`);
 });
+
+test('comments: saved, kept when other fields are saved, capped and cleaned', async (t) => {
+  const { normalize } = await import('../server/extras.js');
+  const o = normalize({ c: [{ i: 'abcd1234', w: 'ai', t: '  hi\u0000 there ', at: 5 }, { t: '   ' }, { w: 'x', t: 'a'.repeat(5000) }] });
+  assert.equal(o.c.length, 2);
+  assert.equal(o.c[0].w, 'ai'); assert.equal(o.c[0].t, 'hi there'); assert.equal(o.c[1].w, 'me'); assert.equal(o.c[1].t.length, 2000);
+  assert.equal(normalize({ c: Array.from({ length: 300 }, (_, i) => ({ t: 'n' + i })) }).c.length, 200);
+});
