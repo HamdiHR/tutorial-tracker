@@ -1,0 +1,21 @@
+{
+  "name": "Tutorial Tracker",
+  "short_name": "Tutorials",
+  "description": "Follow step-by-step tutorials, plan your timeline and track your progress.",
+  "id": "/",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#131720",
+  "theme_color": "#131720",
+  "orientation": "any",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Board", "url": "/#/board", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Timeline", "url": "/#/timeline", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

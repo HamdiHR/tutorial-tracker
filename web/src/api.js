@@ -66,7 +66,9 @@ export const api = {
   planManualClear: () => req('DELETE', '/api/plan/manual', {}),
   planClear: () => req('DELETE', '/api/plan', {}),
   info: () => req('GET', '/api/info'),
-  config: () => fetch('/api/config').then((r) => (r.ok ? r.json() : { hosted: false })).catch(() => ({ hosted: false })),
+  // Remembered after the first successful load, so the app can start offline (it is public information: the project URL and publishable key).
+  config: () => fetch('/api/config').then((r) => { if (!r.ok) return { hosted: false }; return r.json().then((c) => { try { if (c.hosted) localStorage.setItem('tt.cfg', JSON.stringify(c)); } catch {} return c; }); })
+    .catch(() => { let c = null; try { c = JSON.parse(localStorage.getItem('tt.cfg') || 'null'); } catch {} if (c?.hosted) return c; const e = new Error('Cannot reach the server. Check your connection.'); e.network = true; throw e; }),
   me: () => req('GET', '/api/me'),
   onboard: (body) => req('POST', '/api/onboarding', body),
   people: () => req('GET', '/api/admin/people'),

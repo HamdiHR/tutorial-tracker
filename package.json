@@ -1,6 +1,6 @@
 {
   "name": "tutorial-tracker",
-  "version": "0.39.3",
+  "version": "0.39.4",
   "description": "Light local app to follow step-by-step tutorials: slides per step, progress dashboard, notes, edits.",
   "private": true,
   "type": "module",
@@ -17,12 +17,15 @@
     "perf": "node scripts/perf-baseline.cjs",
     "build:content": "node --disable-warning=ExperimentalWarning scripts/build-content.js",
     "build:hosted": "node scripts/migrate-hosted.js && node scripts/build.cjs && node --disable-warning=ExperimentalWarning scripts/build-content.js",
-    "test:hosted": "bash hosted/test/sql-test.sh && node --disable-warning=ExperimentalWarning --test test/hosted.test.js"
+    "test:hosted": "bash hosted/test/sql-test.sh && node --disable-warning=ExperimentalWarning --test test/hosted.test.js",
+    "test:e2e": "node test/e2e/run.cjs",
+    "test:all": "bash hosted/test/sql-test.sh && node --disable-warning=ExperimentalWarning --test \"test/*.test.js\""
   },
   "devDependencies": {
     "esbuild": "^0.28.0",
     "highlight.js": "^11.11.0",
     "marked": "^18.0.0",
-    "pg": "^8.13.0"
+    "pg": "^8.13.0",
+    "playwright": "^1.49.0"
   }
 }

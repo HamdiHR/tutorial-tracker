@@ -1,0 +1,17 @@
+const { chromium, ok, U, done } = require('./helpers.cjs');
+(async()=>{const b=await chromium.launch();const errs=[];
+const p=await (await b.newContext({viewport:{width:1300,height:900}})).newPage();p.on('pageerror',e=>errs.push(String(e)));
+await p.goto(U+'#/timeline');await p.waitForSelector('.tl-stats');
+const before=(await p.locator('.tl-stats').innerText()).replace(/\s+/g,' ');
+await p.click('text=What if');await p.waitForSelector('.wi-row');
+const first=(await p.locator('.wi-out').innerText()).replace(/\s+/g,' ');ok('shows comparison',/Planned finish/.test(first),first.slice(0,120));
+await p.locator('.wi input[type=checkbox]').nth(5).check();await p.locator('.wi input[type=checkbox]').nth(6).check();await p.waitForTimeout(700);
+const second=(await p.locator('.wi-out').innerText()).replace(/\s+/g,' ');ok('7-day week changes the result',second!==first,second.slice(0,160));
+await p.locator('.wi input[type=checkbox]').filter({hasText:''}).last().check().catch(()=>{});await p.waitForTimeout(600);
+ok('Claude adds a person',/People\s*1\s*→\s*2/.test((await p.locator('.wi-out').innerText()).replace(/\s+/g,' ')));
+await p.click('text=Close');await p.waitForTimeout(400);
+const after=(await p.locator('.tl-stats').innerText()).replace(/\s+/g,' ');ok('nothing saved by previewing',before===after);
+await p.click('text=What if');await p.waitForSelector('.wi-row');await p.locator('.wi input[type=checkbox]').nth(5).check();await p.waitForTimeout(500);
+await p.click('text=Apply to my plan');await p.waitForTimeout(1200);
+ok('apply saves',(await p.locator('.tl-stats').innerText()).replace(/\s+/g,' ')!==before);
+done(errs);await b.close();})().catch(e=>{console.log('FAIL',e.message.slice(0,300));process.exit(1)});

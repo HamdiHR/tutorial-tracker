@@ -1,0 +1,16 @@
+const { chromium, ok, U, done } = require('./helpers.cjs');
+(async()=>{const b=await chromium.launch();const errs=[];
+const p=await (await b.newContext({viewport:{width:1300,height:900}})).newPage();p.on('pageerror',e=>errs.push(String(e)));
+await p.goto(U);await p.waitForSelector('.auth-card');await p.click('text=Create account');
+await p.fill('input[name=email]','owner@x.com');await p.fill('input[name=password]','password123');await p.fill('input[name=again]','password123');await p.click('button[type=submit]');
+await p.waitForSelector('.ob-choice');await p.click('.ob-choice >> nth=0');await p.waitForSelector('.hero2',{timeout:15000});
+const tok=JSON.parse(await p.evaluate(()=>localStorage.getItem('tt.session'))).access_token;
+const call=async(m,u,b)=>(await fetch(U+'api'+u,{method:m,headers:{authorization:'Bearer '+tok,'content-type':'application/json'},body:b?JSON.stringify(b):undefined})).json();
+await call('PUT','/views',{views:[{name:'Hosted one',f:{view:'late'}}]});
+ok('views persist in hosted',(await call('GET','/views'))[0]?.name==='Hosted one');
+const ov=await call('GET','/overview');const ids=ov.sprints[0].items.filter(x=>x.kind==='ticket').map(x=>x.id);
+await call('PUT','/tickets/'+ids[1]+'/extras',{d:[ids[0]],c:[{t:'hi'}]});
+const ex=await call('GET','/tickets/'+ids[1]+'/extras');ok('deps+comments persist in hosted',ex.d[0]===ids[0]&&ex.c.length===1);
+await call('PUT','/plan?today='+new Date().toISOString().slice(0,10),{startDate:new Date().toISOString().slice(0,10),workDays:[1,2,3,4,5],sprintDays:5,anchor:'here',perSprint:{},daysOff:[],team:[{name:'You'}]});
+const sc=await call('POST','/plan/scenario?today='+new Date().toISOString().slice(0,10),{changes:{workDays:[1,2,3,4,5,6,0]}});ok('scenario works hosted',!!sc.scenario?.plannedEnd);
+done(errs);await b.close();})().catch(e=>{console.log('FAIL',e.message.slice(0,300));process.exit(1)});

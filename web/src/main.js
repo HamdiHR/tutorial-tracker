@@ -9,6 +9,7 @@ import { startAuth, signOut } from './auth.js';
 import { handleUnlocked } from './fx.js';
 import { enter } from './motion.js';
 import { hasModal } from './modal.js';
+import { initPwa } from './pwa.js';
 
 const root = $('#view');
 // Everything except the first screen loads on demand, so the first load stays small.
@@ -76,11 +77,21 @@ $('#menu-btn').addEventListener('click', () => document.body.classList.toggle('n
 $('#top-search').addEventListener('click', openSearch);
 $('#scrim').addEventListener('click', () => document.body.classList.remove('nav-open'));
 
+function offlineScreen(message) {
+  document.body.append(h('div', { class: 'auth' }, h('div', { class: 'auth-card' }, h('h1', {}, 'Cannot reach the server'),
+    h('p', { class: 'muted' }, message), h('p', { class: 'muted small' }, 'The app opens offline, but your data loads and saves only when you are connected. Offline editing is coming next.'),
+    h('button', { class: 'btn primary', onClick: () => location.reload() }, 'Try again'))));
+  document.body.classList.add('auth-open');
+}
+
 async function boot() {
-  await startAuth();
+  // Register the offline shell as early as possible (before the sign-in screen), hosted app only.
+  api.config().then((c) => { if (c.hosted) initPwa($('#topbar'), $('#theme-btn'), true); }).catch(() => {});
+  try { await startAuth(); } catch (e) { return offlineScreen(e.message); }
   if (S.hosted) {
     try { S.me = await api.me(); }
     catch (e) {
+      if (e.network || /Cannot reach/.test(e.message)) return offlineScreen(e.message);
       document.body.append(h('div', { class: 'auth' }, h('div', { class: 'auth-card' }, h('h1', {}, 'No access'), h('p', { class: 'muted' }, e.message), h('button', { class: 'btn', onClick: signOut }, 'Sign out'))));
       document.body.classList.add('auth-open');
       return;

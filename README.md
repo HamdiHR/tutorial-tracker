@@ -139,3 +139,4 @@ Vercel + Supabase, email/password sign-in (invite-only), per-person data, first-
 - **Board**: grouping, saved views, WIP limits, collapsible columns, compact mode.
 - **0.39.2**: task links (`?t=`), comments per task, burndown chart on the timeline, `.ics` export (📅 button on the timeline).
 - **0.39.3**: save your own board filters (💾), timeline minimap, task dependencies (arrows on the roadmap, warning on conflicts), 🔮 What if… planner that previews a changed plan before you apply it.
+- **0.39.4** (v0.40 in progress): the hosted app is **installable** (Install button in Chrome/Edge/Android; Add to Home Screen on iPhone) and its shell opens offline. Data still needs a connection until the offline engine lands. A dropped connection no longer signs you out. Browser tests are in `test/e2e` (`npm run test:e2e`), CI in `.github/workflows/ci.yml`.

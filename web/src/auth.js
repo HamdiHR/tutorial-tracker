@@ -16,7 +16,7 @@ async function auth(method, path, body, token) {
   let r;
   try {
     r = await fetch(`${cfg.supabaseUrl}/auth/v1${path}`, { method, headers: { apikey: cfg.anonKey, 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: body ? JSON.stringify(body) : undefined });
-  } catch { throw new Error('Cannot reach the sign-in service. Check your connection.'); }
+  } catch { const e = new Error('Cannot reach the sign-in service. Check your connection.'); e.network = true; throw e; }
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(friendly(data.msg || data.message || data.error_description || data.error || `Error ${r.status}`));
   return data;
@@ -37,7 +37,7 @@ export async function getToken() {
   if (session.expires_at - 60 > Date.now() / 1000) return session.access_token;
   refreshing ||= auth('POST', '/token?grant_type=refresh_token', { refresh_token: session.refresh_token })
     .then((g) => { save(fromGrant(g)); return session.access_token; })
-    .catch(() => { save(null); return null; })
+    .catch((e) => { if (e.network) throw e; save(null); return null; }) // a dropped connection must never sign you out
     .finally(() => { refreshing = null; });
   return refreshing;
 }

@@ -1,0 +1,17 @@
+const { chromium, ok, U, done } = require('./helpers.cjs');
+(async()=>{const b=await chromium.launch();const errs=[];
+const p=await (await b.newContext({viewport:{width:1300,height:900}})).newPage();p.on('requestfailed',r=>errs.push('RF '+r.url()));p.on('response',r=>r.status()>=400&&errs.push(r.status()+' '+r.url()));p.on('pageerror',e=>errs.push(String(e)));p.on('console',m=>m.type()==='error'&&errs.push(m.text()));
+await p.goto(U);await p.waitForSelector('.auth-card');await p.click('text=Create account');
+await p.fill('input[name=email]','owner@x.com');await p.fill('input[name=password]','password123');await p.fill('input[name=again]','password123');await p.click('button[type=submit]');
+await p.waitForSelector('.ob-choice');await p.click('.ob-choice >> nth=0');await p.waitForSelector('.hero2',{timeout:15000});
+await p.goto(U+'#/board');await p.waitForSelector('.bcard');
+await p.locator('.bcard').first().click();await p.waitForSelector('aside.drawer',{timeout:8000});ok('drawer opens hosted',true);
+const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==','base64');
+await p.setInputFiles('aside.drawer input[type=file]',{name:'a.png',mimeType:'image/png',buffer:png});
+await p.waitForTimeout(3000);p.on('response',r=>0);await p.waitForSelector('aside.drawer img',{timeout:10000});ok('image shown after upload',true);
+const w=await p.locator('aside.drawer img').first().evaluate(i=>new Promise(r=>i.complete?r(i.naturalWidth):i.onload=()=>r(i.naturalWidth)));ok('image bytes load from storage',w>0,String(w));
+await p.setInputFiles('aside.drawer input[type=file]',{name:'n.txt',mimeType:'text/plain',buffer:Buffer.from('hello')});
+await p.waitForTimeout(1500);ok('two files listed',(await p.locator('aside.drawer [class*=file]').count())>=2);
+await p.keyboard.press('Escape');await p.waitForTimeout(300);await p.reload();await p.waitForSelector('.hero2, .board, #main');await p.goto(U+'#/board');await p.waitForTimeout(1500);
+await p.locator('.bcard').first().click();await p.waitForSelector('aside.drawer img',{timeout:10000});ok('persists after reload',true);
+done(errs.filter(e=>!/401|400|Failed to load resource/.test(e)));await b.close();})().catch(e=>{console.log('FAIL',e.message.slice(0,300));process.exit(1)});

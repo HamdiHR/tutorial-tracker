@@ -1,0 +1,11 @@
+const { chromium, ok, U, done } = require('./helpers.cjs');
+(async()=>{const b=await chromium.launch();const errs=[];
+const ctx=await b.newContext({viewport:{width:1300,height:900},acceptDownloads:true});const p=await ctx.newPage();p.on('pageerror',e=>errs.push(String(e)));
+await p.goto(U+'#/timeline');await p.waitForSelector('.tl-stats');
+ok('burndown card',await p.locator('.bd-card svg path.bd-plan').count()===1,(await p.locator('.bd-card').innerText()).replace(/\s+/g,' ').slice(0,90));
+const [d]=await Promise.all([p.waitForEvent('download'),p.click('text=Export .ics')]);
+const f=await d.path();const t=require('node:fs').readFileSync(f,'utf8');
+ok('ics valid',t.startsWith('BEGIN:VCALENDAR')&&/END:VCALENDAR\r\n$/.test(t)&&(t.match(/BEGIN:VEVENT/g)||[]).length>3,(t.match(/BEGIN:VEVENT/g)||[]).length+' events');
+ok('ics dates',/DTSTART;VALUE=DATE:\d{8}/.test(t)&&/DTEND;VALUE=DATE:\d{8}/.test(t));
+await p.locator('.bd-card').scrollIntoViewIfNeeded();
+done(errs);await b.close();})().catch(e=>{console.log('FAIL',e.message.slice(0,300));process.exit(1)});

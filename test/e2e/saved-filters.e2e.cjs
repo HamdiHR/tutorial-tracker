@@ -1,0 +1,18 @@
+const { chromium, ok, U, done } = require('./helpers.cjs');
+(async()=>{const b=await chromium.launch();const errs=[];
+const p=await (await b.newContext({viewport:{width:1300,height:900}})).newPage();p.on('pageerror',e=>errs.push(String(e)));
+p.on('dialog',d=>d.accept(d.type()==='prompt'?'My blockers':undefined));
+await p.goto(U+'#/board');await p.waitForSelector('.bcard');
+const total=await p.locator('.bcard:visible').count();
+await p.selectOption('select[aria-label="Saved view"]','blocked');await p.waitForTimeout(300);
+await p.click('text=Save filters');await p.waitForTimeout(800);
+ok('saved filter listed',(await p.locator('select[aria-label="My saved filters"] option').allTextContents()).includes('My blockers'));
+await p.selectOption('select[aria-label="Saved view"]','');await p.waitForTimeout(200);
+await p.selectOption('select[aria-label="My saved filters"]',{label:'My blockers'});await p.waitForTimeout(800);
+ok('apply restores the view',(await p.locator('select[aria-label="Saved view"]').inputValue())==='blocked');
+await p.reload();await p.waitForSelector('select[aria-label="My saved filters"]');await p.waitForTimeout(500);
+ok('survives reload (stored on server)',(await p.locator('select[aria-label="My saved filters"] option').allTextContents()).includes('My blockers'));
+await p.selectOption('select[aria-label="My saved filters"]',{label:'My blockers'});await p.waitForTimeout(600);
+await p.click('button[aria-label="Delete selected saved filter"]');await p.waitForTimeout(800);
+ok('delete',!(await p.locator('select[aria-label="My saved filters"] option').allTextContents()).includes('My blockers'));
+done(errs);await b.close();})().catch(e=>{console.log('FAIL',e.message.slice(0,300));process.exit(1)});
