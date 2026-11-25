@@ -16,12 +16,14 @@
     "build:single": "node scripts/build.cjs --single",
     "perf": "node scripts/perf-baseline.cjs",
     "build:content": "node --disable-warning=ExperimentalWarning scripts/build-content.js",
-    "build:hosted": "node scripts/migrate-hosted.js && node scripts/build.cjs && node --disable-warning=ExperimentalWarning scripts/build-content.js",
+    "build:engine": "node scripts/build-engine.cjs",
+    "build:hosted": "node scripts/migrate-hosted.js && node scripts/build.cjs && node --disable-warning=ExperimentalWarning scripts/build-content.js && node scripts/build-engine.cjs",
     "test:hosted": "bash hosted/test/sql-test.sh && node --disable-warning=ExperimentalWarning --test test/hosted.test.js",
     "test:e2e": "node test/e2e/run.cjs",
     "test:all": "bash hosted/test/sql-test.sh && node --disable-warning=ExperimentalWarning --test \"test/*.test.js\""
   },
   "devDependencies": {
+    "@sqlite.org/sqlite-wasm": "^3.54.1-build1",
     "esbuild": "^0.28.0",
     "highlight.js": "^11.11.0",
     "marked": "^18.0.0",
