@@ -1,6 +1,7 @@
 // Hosted mode sign-in (Supabase Auth over plain fetch; no SDK). In local mode none of this runs.
 import { h } from './dom.js';
 import { api, setAuth } from './api.js';
+import { engine } from './engine.js';
 import { S, ls } from './state.js';
 
 const KEY = 'tt.session';
@@ -146,6 +147,7 @@ export async function startAuth() {
   else if (link?.grant) save(fromGrant(link.grant));
   if (!session) await loginFlow('login', link?.error ? `That link did not work: ${link.error}` : '');
   else if (!(await getToken())) await loginFlow('login', 'Please sign in again.');
+  engine.attach(getToken); // signed in: load the local engine in the background (the app does not wait for it)
 }
 
 /** Hosted: change the password of the signed-in person. */
