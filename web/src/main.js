@@ -10,6 +10,7 @@ import { handleUnlocked } from './fx.js';
 import { enter } from './motion.js';
 import { hasModal } from './modal.js';
 import { initPwa } from './pwa.js';
+import { engine } from './engine.js';
 
 const root = $('#view');
 // Everything except the first screen loads on demand, so the first load stays small.
@@ -89,16 +90,23 @@ async function boot() {
   api.config().then((c) => { if (c.hosted) initPwa($('#topbar'), $('#theme-btn'), true); }).catch(() => {});
   try { await startAuth(); } catch (e) { return offlineScreen(e.message); }
   if (S.hosted) {
-    try { S.me = await api.me(); }
+    try { S.me = await api.me(); try { localStorage.setItem('tt.me', JSON.stringify(S.me)); } catch {} }
     catch (e) {
-      if (e.network || /Cannot reach/.test(e.message)) return offlineScreen(e.message);
+      const net = e.network || /Cannot reach/.test(e.message);
+      if (net) await engine.settled(); // offline: the engine is starting from this device's copy; wait for it
+      let cached = null; try { cached = net ? JSON.parse(localStorage.getItem('tt.me') || 'null') : null; } catch {}
+      if (cached && engine.status() === 'ready' && engine.source() === 'device') { S.me = cached; S.offline = true; } // offline: this device's copy of the data
+      else if (net) return offlineScreen(e.message);
+      else {
       document.body.append(h('div', { class: 'auth' }, h('div', { class: 'auth-card' }, h('h1', {}, 'No access'), h('p', { class: 'muted' }, e.message), h('button', { class: 'btn', onClick: signOut }, 'Sign out'))));
       document.body.classList.add('auth-open');
       return;
+      }
     }
     if (!S.me.onboarded) {
       await (await import('./onboarding.js')).runOnboarding();
       S.me = await api.me().catch(() => S.me);
+      try { localStorage.setItem('tt.me', JSON.stringify(S.me)); } catch {}
     }
     const who = h('button', { class: 'btn sm', title: S.me.email, onClick: () => { location.hash = '#/settings'; } }, 'Account');
     $('#topbar').insertBefore(who, $('#theme-btn'));
