@@ -1,3 +1,4 @@
+import { engine } from './engine.js';
 let onUnlocked = null;
 let tokenProvider = null; // hosted mode: returns a fresh access token (or null)
 let onUnauthorized = null;
@@ -10,6 +11,12 @@ const authHeaders = async () => {
 export const setUnlockHandler = (fn) => (onUnlocked = fn);
 
 async function req(method, url, body) {
+  if (tokenProvider && method === 'GET') { const local = await engine.read(url); if (local !== undefined) return local; } // hosted: answered by the local engine when it is ready
+  const data = await serverReq(method, url, body);
+  if (tokenProvider && method !== 'GET') engine.wrote(method, url, body);
+  return data;
+}
+async function serverReq(method, url, body) {
   const init = { method, headers: await authHeaders() };
   if (method !== 'GET') {
     init.headers['content-type'] = 'application/json';

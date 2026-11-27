@@ -28,6 +28,7 @@ jobs:
       - run: npm install
       - run: npm run build
       - run: npm run build:content
+      - run: npm run build:engine
       - name: Unit, API and hosted tests
         run: npm run test:all
       - name: Install a browser

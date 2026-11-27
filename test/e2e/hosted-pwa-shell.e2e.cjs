@@ -28,6 +28,8 @@ const SW = path.resolve(__dirname, '../../public/sw.js');
   const sessionBefore = await p.evaluate(() => localStorage.getItem('tt.session'));
   ok('config remembered for offline start', !!(await p.evaluate(() => localStorage.getItem('tt.cfg'))));
   // offline: reload still opens the app shell, shows a clear message, keeps the sign-in
+  // This test covers an offline start WITHOUT a device copy of the data (engine switched off). With a copy the app opens: see hosted-offline-start.e2e.cjs.
+  await p.evaluate(() => localStorage.setItem('tt.engine', 'off'));
   await ctx.setOffline(true);
   await p.reload(); await p.waitForSelector('.auth-card, .pwa-bar', { timeout: 10000 });
   ok('opens offline with a clear message', /Cannot reach the server/.test(await p.locator('body').innerText()));

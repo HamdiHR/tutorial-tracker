@@ -52,7 +52,7 @@ const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e
     const shell = ['/', '/index.html', '/manifest.webmanifest', ...walk(out).map((f) => '/' + path.relative(out, f).split(path.sep).join('/')).filter((u) => /^\/(assets\/.+\.(js|css)|icons\/.+\.png)$/.test(u))];
     const uniq = [...new Set(shell)].sort();
     const version = require('node:crypto').createHash('sha256').update(uniq.map((u) => (u.endsWith('/') ? 'root' : fs.readFileSync(path.join(out, u === '/index.html' ? 'index.html' : u))) ).join('\n')).digest('hex').slice(0, 12);
-    fs.writeFileSync(path.join(out, 'sw.js'), fs.readFileSync(path.join(root, 'web/sw.template.js'), 'utf8').replace('__VERSION__', version).replace('__PRECACHE__', JSON.stringify(uniq)));
+    fs.writeFileSync(path.join(out, 'sw.js'), fs.readFileSync(path.join(root, 'web/sw.template.js'), 'utf8').replace('__VERSION__', version).replace('__PRECACHE__', JSON.stringify(uniq)).replace('__ENGINE_VERSION__', 'none').replace('__ENGINE__', '[]'));
   }
   if (!process.env.VERCEL) for (const f of [...walk(out)].filter((f) => /\.(js|css|html)$/.test(f))) compress(f); // Vercel compresses by itself
   const sizes = walk(out).filter((f) => /\.(js|css|html)$/.test(f) && !f.includes('node_modules')).map((f) => [path.relative(out, f), fs.statSync(f).size, fs.existsSync(f + '.br') ? fs.statSync(f + '.br').size : 0]).sort((a, b) => b[1] - a[1]);

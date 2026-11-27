@@ -146,6 +146,12 @@ export function createHosted({ env = process.env, contentPath, fetchImpl = fetch
       throw new HttpError(404, 'Unknown endpoint');
     }
 
+    // The person's saved state (what tt_state returns), for the in-browser engine. Only their own rows: the call uses their token.
+    if (p === '/api/state' && method === 'GET') {
+      const st = await rpc('tt_state', { p_days: 400 }, token);
+      if (!st?.profile) throw new HttpError(403, 'This account has not been invited.');
+      return { status: 200, json: st };
+    }
     if (p === '/api/info') return { status: 200, json: await withUser(token, false, (api) => ({ version, hosted: true, sprints: api('GET', '/api/overview', new URLSearchParams(), {}).sprints.map((s) => ({ id: s.id, title: s.title })) })) };
     if (/^\/api\/(import|export)/.test(p)) throw new HttpError(404, 'Not available in the hosted version.');
     if (!p.startsWith('/api/')) throw new HttpError(404, 'Not found');

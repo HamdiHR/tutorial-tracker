@@ -1,6 +1,7 @@
 // Hosted mode sign-in (Supabase Auth over plain fetch; no SDK). In local mode none of this runs.
 import { h } from './dom.js';
 import { api, setAuth } from './api.js';
+import { engine } from './engine.js';
 import { S, ls } from './state.js';
 
 const KEY = 'tt.session';
@@ -10,7 +11,12 @@ let refreshing = null;
 
 const load = () => { try { session = JSON.parse(ls(KEY) || 'null'); } catch { session = null; } };
 const save = (s) => { session = s; try { s ? localStorage.setItem(KEY, JSON.stringify(s)) : localStorage.removeItem(KEY); } catch {} };
-const fromGrant = (g) => ({ access_token: g.access_token, refresh_token: g.refresh_token, expires_at: g.expires_at || Math.floor(Date.now() / 1000) + (g.expires_in || 3600) });
+const fromGrant = (g) => ({ access_token: g.access_token, refresh_token: g.refresh_token, expires_at: g.expires_at || Math.floor(Date.now() / 1000) + (g.expires_in || 3600), ...(g.user?.id ? { user: { id: g.user.id } } : {}) });
+/** Who is signed in, without a network call (saved with the session; falls back to the token's own claim). */
+export function sessionUserId() {
+  if (session?.user?.id) return session.user.id;
+  try { return JSON.parse(atob(session.access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).sub || null; } catch { return null; }
+}
 
 async function auth(method, path, body, token) {
   let r;
@@ -45,9 +51,10 @@ export async function getToken() {
 export function signOut() {
   const t = session?.access_token;
   save(null);
+  try { localStorage.removeItem('tt.me'); } catch {}
   if (t) fetch(`${cfg.supabaseUrl}/auth/v1/logout`, { method: 'POST', headers: { apikey: cfg.anonKey, authorization: `Bearer ${t}` } }).catch(() => {});
   location.hash = '';
-  location.reload();
+  engine.wipe().finally(() => location.reload()); // forget this device's copy of the data
 }
 
 /** Links in invitation / reset emails land here with the tokens in the URL fragment. */
@@ -140,12 +147,18 @@ export async function startAuth() {
   S.hosted = !!cfg.hosted;
   if (!cfg.hosted) return;
   load();
-  setAuth(getToken, () => { save(null); loginFlow('login', 'Your session ended. Please sign in again.').then(() => location.reload()); });
+  setAuth(getToken, () => { save(null); engine.wipe(); loginFlow('login', 'Your session ended. Please sign in again.').then(() => location.reload()); });
   const link = takeLinkSession();
   if (link?.grant && ['invite', 'recovery'].includes(link.type)) await setPasswordFlow(link.grant, link.type);
   else if (link?.grant) save(fromGrant(link.grant));
   if (!session) await loginFlow('login', link?.error ? `That link did not work: ${link.error}` : '');
-  else if (!(await getToken())) await loginFlow('login', 'Please sign in again.');
+  else {
+    try { if (!(await getToken())) await loginFlow('login', 'Please sign in again.'); }
+    catch (e) { if (!(e.network && session)) throw e; S.offline = true; } // no connection but a saved session: keep going with this device's copy
+  }
+  // Signed in: load the local engine. Online the app does not wait for it; offline it must (there is no server to fall back to).
+  const started = engine.attach(getToken, sessionUserId());
+  if (S.offline) await started;
 }
 
 /** Hosted: change the password of the signed-in person. */
