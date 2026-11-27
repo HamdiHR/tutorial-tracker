@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "pretest": "node -e \"require('fs').existsSync('public/index.html')||require('child_process').execSync('node scripts/build.cjs',{stdio:'inherit'})\"",
     "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.js\"",
     "build": "node scripts/build.cjs",
     "import": "node --disable-warning=ExperimentalWarning server/cli.js import",
