@@ -31,10 +31,40 @@ function offlineBar() {
   showBar('offline', navigator.onLine ? null : h('div', { class: 'pwa-bar off', role: 'status' }, h('span', {}, 'You are offline. You can open the app, but your data loads and saves only when you are back online.')));
 }
 
+// First visit: the engine files download in the background. Say so, then confirm when the app can open offline.
+function askEngine(sw) {
+  return new Promise((res) => {
+    const t = setTimeout(() => { navigator.serviceWorker.removeEventListener('message', on); res(null); }, 3000);
+    const on = (e) => { if (e.data?.type !== 'ENGINE_STATUS') return; clearTimeout(t); navigator.serviceWorker.removeEventListener('message', on); res(e.data); };
+    navigator.serviceWorker.addEventListener('message', on);
+    sw.postMessage('ENGINE_STATUS');
+  });
+}
+async function watchOfflineReady(reg) {
+  try {
+    const ready = await navigator.serviceWorker.ready;
+    const sw = ready.active || reg.active;
+    if (!sw) return;
+    let first = true;
+    for (let i = 0; i < 60; i++) { // up to ~2 minutes
+      const st = await askEngine(sw);
+      if (st && st.total && st.cached >= st.total) {
+        if (!first) { showBar('engine', h('div', { class: 'pwa-bar', role: 'status' }, h('span', {}, 'Ready to work offline (read-only for now).'))); setTimeout(() => showBar('engine', null), 5000); }
+        return;
+      }
+      if (st && st.total && first) showBar('engine', h('div', { class: 'pwa-bar', role: 'status' }, h('span', {}, 'Preparing offline mode… keep this page open for a moment.')));
+      if (st && st.total) first = false;
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    showBar('engine', null);
+  } catch { showBar('engine', null); }
+}
+
 async function register() {
   if (!swOk) return;
   try {
     const reg = await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' });
+    watchOfflineReady(reg);
     const watch = (w) => w?.addEventListener('statechange', () => { if (w.state === 'installed' && navigator.serviceWorker.controller) updateBar(reg); });
     if (reg.waiting && navigator.serviceWorker.controller) updateBar(reg);
     reg.addEventListener('updatefound', () => watch(reg.installing));
