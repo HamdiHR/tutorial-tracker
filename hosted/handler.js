@@ -44,7 +44,7 @@ export function createHosted({ env = process.env, contentPath, fetchImpl = fetch
   const rpc = async (name, args, token) => {
     const r = await call('POST', `/rest/v1/rpc/${name}`, { key: anon, bearer: token, body: args });
     if (r.status === 401 || r.status === 403) throw new HttpError(401, 'Please sign in again.');
-    if (!r.ok) { console.error(`rpc ${name} failed`, r.status, JSON.stringify(r.data)?.slice(0, 300)); throw new HttpError(502, name === 'tt_apply' ? 'Could not save your changes. Try again.' : 'Could not load your data. Try again.'); }
+    if (!r.ok) { console.error(`rpc ${name} failed`, r.status, JSON.stringify(r.data)?.slice(0, 300)); throw new HttpError(502, name.startsWith('tt_apply') ? 'Could not save your changes. Try again.' : 'Could not load your data. Try again.'); }
     return r.data;
   };
   const asService = (method, pathQuery, body, headers) => {
@@ -53,7 +53,7 @@ export function createHosted({ env = process.env, contentPath, fetchImpl = fetch
   };
 
   /** Run fn(api, db, state) on this person's data; save what changed when `write`. */
-  async function withUser(token, write, fn) {
+  async function withUser(token, write, fn, opId) {
     const state = await rpc('tt_state', { p_days: 400 }, token);
     if (!state?.profile) throw new HttpError(403, 'This account has not been invited.');
     const work = openWorking(contentPath);
@@ -64,7 +64,7 @@ export function createHosted({ env = process.env, contentPath, fetchImpl = fetch
       const out = await fn(api, work.db, state);
       if (write) {
         const d = diff(work.db, before, extract(work.db));
-        if (d) await rpc('tt_apply', { p: d }, token);
+        if (d) await (opId ? rpc('tt_apply_v2', { p: d, p_op: opId }, token) : rpc('tt_apply', { p: d }, token)); // with an operation id a retried save is applied at most once
       }
       return out;
     } finally { work.close(); }
@@ -157,7 +157,9 @@ export function createHosted({ env = process.env, contentPath, fetchImpl = fetch
     if (!p.startsWith('/api/')) throw new HttpError(404, 'Not found');
 
     const write = method !== 'GET' && method !== 'HEAD';
-    const out = await withUser(token, write, (api) => api(method === 'HEAD' ? 'GET' : method, p, u.searchParams, body || {}));
+    const op = String(headers['x-op-id'] || '');
+    const opId = write && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(op) ? op.toLowerCase() : null;
+    const out = await withUser(token, write, (api) => api(method === 'HEAD' ? 'GET' : method, p, u.searchParams, body || {}), opId);
     return { status: 200, json: out };
   }
 

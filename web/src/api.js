@@ -12,12 +12,24 @@ export const setUnlockHandler = (fn) => (onUnlocked = fn);
 
 async function req(method, url, body) {
   if (tokenProvider && method === 'GET') { const local = await engine.read(url); if (local !== undefined) return local; } // hosted: answered by the local engine when it is ready
-  const data = await serverReq(method, url, body);
-  if (tokenProvider && method !== 'GET') engine.wrote(method, url, body);
+  if (!tokenProvider || method === 'GET') return serverReq(method, url, body);
+  // Hosted writes carry an operation id, so a retry (after a dropped connection) is applied at most once.
+  const op = crypto.randomUUID();
+  if (engine.hasPending()) return queued(op, method, url, body); // earlier changes are still waiting to upload: stay in order behind them
+  let data;
+  try { data = await serverReq(method, url, body, op); }
+  catch (e) { if (e.network && engine.canQueue(method, url)) return queued(op, method, url, body); throw e; } // offline: save on this device, upload later
+  engine.wrote(method, url, body);
   return data;
 }
-async function serverReq(method, url, body) {
+async function queued(op, method, url, body) {
+  const data = await engine.enqueue(op, method, url, body);
+  if (Array.isArray(data?.unlocked) && data.unlocked.length) onUnlocked?.(data.unlocked);
+  return data;
+}
+async function serverReq(method, url, body, opId) {
   const init = { method, headers: await authHeaders() };
+  if (opId) init.headers['x-op-id'] = opId;
   if (method !== 'GET') {
     init.headers['content-type'] = 'application/json';
     init.body = JSON.stringify(body ?? {});
@@ -26,7 +38,7 @@ async function serverReq(method, url, body) {
   try {
     r = await fetch(url, init);
   } catch {
-    throw new Error(tokenProvider ? 'Cannot reach the server. Check your connection.' : 'Cannot reach the local server. Is Tutorial Tracker still running?');
+    throw Object.assign(new Error(tokenProvider ? 'Cannot reach the server. Check your connection.' : 'Cannot reach the local server. Is Tutorial Tracker still running?'), { network: true });
   }
   const data = await r.json().catch(() => ({}));
   if (r.status === 401 && onUnauthorized) { onUnauthorized(); throw new Error(data.error || 'Please sign in again.'); }
