@@ -17,6 +17,8 @@ try {
   await client.connect();
   await client.query(fs.readFileSync(path.join(root, 'hosted/sql/001_init.sql'), 'utf8'));
   console.log('migrate: schema applied');
+  await client.query(fs.readFileSync(path.join(root, 'hosted/sql/004_sync.sql'), 'utf8'));
+  console.log('migrate: sync tables + tt_apply_v2 applied');
   try {
     await client.query(fs.readFileSync(path.join(root, 'hosted/sql/003_storage.sql'), 'utf8'));
     console.log('migrate: file storage bucket + policies applied');
