@@ -10,12 +10,13 @@ import { createApi } from '../../server/api.js';
 import { hydrate, extract, diff, baseOf } from '../../hosted/state.js';
 
 const now = () => performance.now();
-let db = null, api = null, before = null;
+let db = null, api = null, before = null, sqlite3m = null, ctx = null;
 
 async function init({ state, contentUrl, wasmUrl, version }) {
   const t = {}; let t0 = now();
   const sqlite3 = await sqlite3InitModule({ locateFile: (f) => (f.endsWith('.wasm') ? wasmUrl : f) }); t.wasm = now() - t0; t0 = now();
   const bytes = new Uint8Array(await (await fetch(contentUrl)).arrayBuffer()); t.fetch = now() - t0; t0 = now();
+  sqlite3m = sqlite3; ctx = { contentUrl };
   const odb = new sqlite3.oo1.DB(':memory:');
   const p = sqlite3.wasm.allocFromTypedArray(bytes);
   odb.checkRc(sqlite3.capi.sqlite3_deserialize(odb.pointer, 'main', p, bytes.length, bytes.length, sqlite3.capi.SQLITE_DESERIALIZE_FREEONCLOSE | sqlite3.capi.SQLITE_DESERIALIZE_RESIZEABLE));
@@ -35,12 +36,28 @@ function call({ method, path, query, body }) {
   return { status: 200, result, diff: d, base };
 }
 
+// Is the server's copy of this person's data the same as what this engine holds? (Used to notice changes made on another device.)
+// The server state goes through the same hydrate + extract as ours, so the comparison is exact.
+async function same({ state }) {
+  const bytes = new Uint8Array(await (await fetch(ctx.contentUrl)).arrayBuffer());
+  const odb = new sqlite3m.oo1.DB(':memory:');
+  try {
+    const p = sqlite3m.wasm.allocFromTypedArray(bytes);
+    odb.checkRc(sqlite3m.capi.sqlite3_deserialize(odb.pointer, 'main', p, bytes.length, bytes.length, sqlite3m.capi.SQLITE_DESERIALIZE_FREEONCLOSE | sqlite3m.capi.SQLITE_DESERIALIZE_RESIZEABLE));
+    const tmp = wrapDb(sqlite3m, odb); hydrate(tmp, state || {});
+    const a = extract(tmp), b = extract(db);
+    const fp = (x) => JSON.stringify(['steps', 'tickets', 'meta', 'badges'].map((k) => [...x[k].entries()].sort((m, n) => (m[0] < n[0] ? -1 : 1))));
+    return { same: fp(a) === fp(b) };
+  } finally { odb.close(); }
+}
+
 self.onmessage = async (e) => {
   const { id, type } = e.data;
   try {
     if (type === 'init') self.postMessage({ id, ok: true, ...(await init(e.data)) });
     else if (!api) throw Object.assign(new Error('engine not initialised'), { status: 503 });
     else if (type === 'call') self.postMessage({ id, ok: true, ...call(e.data) });
+    else if (type === 'same') self.postMessage({ id, ok: true, ...(await same(e.data)) });
     else if (type === 'extract') { const x = extract(db); self.postMessage({ id, ok: true, counts: { steps: x.steps.size, tickets: x.tickets.size, meta: x.meta.size, badges: x.badges.size } }); }
     else throw new Error('unknown message ' + type);
   } catch (err) { self.postMessage({ id, ok: false, status: err.status || 500, error: String(err.message || err) }); }
