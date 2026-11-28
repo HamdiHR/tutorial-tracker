@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.40.2 (2026-11-28)
+
+### Other
+- v0.40 phase 5: two tabs. One tab owns the engine and the outbox (Web Locks); others use the server and take over
+
 ## 0.40.1 (2026-11-28)
 
 ### Other

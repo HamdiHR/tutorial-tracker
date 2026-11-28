@@ -1,6 +1,6 @@
 {
   "name": "tutorial-tracker",
-  "version": "0.40.1",
+  "version": "0.40.2",
   "description": "Light local app to follow step-by-step tutorials: slides per step, progress dashboard, notes, edits.",
   "private": true,
   "type": "module",
