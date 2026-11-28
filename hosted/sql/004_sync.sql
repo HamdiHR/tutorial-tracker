@@ -42,3 +42,19 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION tt_apply_v2(jsonb, uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION tt_apply_v2(jsonb, uuid) TO authenticated;
+
+-- ---------- tt_state with "last changed" times on steps and tickets (conflict detection). Same as 001 plus the 'ua' keys; extra keys are ignored by older code. ----------
+CREATE OR REPLACE FUNCTION tt_state(p_days int DEFAULT 400) RETURNS jsonb LANGUAGE sql STABLE SET search_path = public AS $$
+  SELECT jsonb_build_object(
+    'profile',  (SELECT to_jsonb(p) - 'user_id' FROM tt_profiles p WHERE p.user_id = auth.uid()),
+    'steps',    COALESCE((SELECT jsonb_agg(jsonb_build_object('t',ticket_id,'k',step_key,'done',done,'done_at',done_at,'note',note,'title',title,'body',body,'ua',updated_at)) FROM tt_user_steps WHERE user_id = auth.uid()), '[]'),
+    'tickets',  COALESCE((SELECT jsonb_agg(jsonb_build_object('t',ticket_id,'ov',status_override,'note',note,'ua',updated_at)) FROM tt_user_tickets WHERE user_id = auth.uid()), '[]'),
+    'drift',    COALESCE((SELECT jsonb_agg(jsonb_build_object('t',ticket_id,'k',step_key,'h',hash,'state',state,'note',note)) FROM tt_drift WHERE user_id = auth.uid()), '[]'),
+    'versions', COALESCE((SELECT jsonb_agg(jsonb_build_object('t',ticket_id,'k',step_key,'ts',ts,'title',title,'body',body,'label',label) ORDER BY id) FROM tt_step_versions WHERE user_id = auth.uid()), '[]'),
+    'activity', COALESCE((SELECT jsonb_agg(jsonb_build_object('ts',ts,'type',type,'t',ticket_id,'k',step_key,'info',info) ORDER BY id) FROM tt_activity WHERE user_id = auth.uid() AND ts > now() - make_interval(days => p_days)), '[]'),
+    'badges',   COALESCE((SELECT jsonb_agg(jsonb_build_object('key',key,'family',family,'tier',tier,'at',unlocked_at)) FROM tt_badges WHERE user_id = auth.uid()), '[]'),
+    'meta',     COALESCE((SELECT jsonb_object_agg(key, value) FROM tt_meta WHERE user_id = auth.uid()), '{}')
+  )
+$$;
+REVOKE ALL ON FUNCTION tt_state(int) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION tt_state(int) TO authenticated;

@@ -44,6 +44,7 @@ export default async function handler(req, res) {
       url = '/api/' + rest + (qs ? '?' + qs : '');
     }
     const out = await app.handle(method, url, req.headers, body);
+    for (const [k, v] of Object.entries(out.headers || {})) res.setHeader(k, v);
     send(out.status, out.json);
   } catch (e) {
     if (e instanceof HttpError) return send(e.status, { error: e.message });

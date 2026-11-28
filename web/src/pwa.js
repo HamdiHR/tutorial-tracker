@@ -29,9 +29,11 @@ function updateBar(reg) {
 }
 
 function outboxBar(e) {
-  const { pending = 0, failed = 0 } = e?.detail || {};
+  const { pending = 0, failed = 0, conflicts = 0 } = e?.detail || {};
   let node = null;
-  if (failed) node = h('div', { class: 'pwa-bar off', role: 'status' }, h('span', {}, `${failed} change${failed > 1 ? 's' : ''} could not be saved on the server, so this device now shows the server's version.`),
+  if (conflicts) node = h('div', { class: 'pwa-bar off', role: 'status' }, h('span', {}, `${conflicts} note${conflicts > 1 ? 's were' : ' was'} changed on two devices. The newest version is kept and the other is saved below it as a "Conflict copy". Please review.`),
+    h('button', { class: 'btn sm', type: 'button', onClick: () => engine.clearFailed() }, 'OK'));
+  else if (failed) node = h('div', { class: 'pwa-bar off', role: 'status' }, h('span', {}, `${failed} change${failed > 1 ? 's' : ''} could not be saved on the server, so this device now shows the server's version.`),
     h('button', { class: 'btn sm', type: 'button', onClick: () => engine.clearFailed() }, 'OK'));
   else if (pending) node = h('div', { class: 'pwa-bar', role: 'status' }, h('span', {}, `${pending} change${pending > 1 ? 's' : ''} saved on this device, waiting to upload.`));
   showBar('outbox', node);

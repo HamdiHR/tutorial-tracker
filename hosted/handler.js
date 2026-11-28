@@ -5,7 +5,7 @@
 import { createApi, HttpError } from '../server/api.js';
 import { bulk } from '../server/progress.js';
 import { award } from '../server/badges.js';
-import { openWorking, hydrate, extract, diff } from './state.js';
+import { openWorking, hydrate, extract, diff, textHash } from './state.js';
 
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/;
 
@@ -61,7 +61,41 @@ export function createHosted({ env = process.env, contentPath, fetchImpl = fetch
     for (const a of d.activity || []) a.ts = iso;
     for (const v of d.versions || []) v.ts = iso;
   }
-  async function withUser(token, write, fn, opId, opTime) {
+/**
+   * Two devices changed the same thing while apart. `base` holds what this change started from (fingerprints of the texts, the old
+   * checkbox/status); `st` is the server's current state. Rule (decided in the plan): the newest change is the value, and for notes
+   * the other version is kept visibly as a "Conflict copy". Returns the number of notes that had a conflict.
+   */
+  function resolve(d, state, base, opTime) {
+    if (!base) return 0;
+    let n = 0;
+    const mine = opTime || Date.now();
+    const stamp = new Date(mine).toISOString().slice(0, 16).replace('T', ' ');
+    const merge = (offline, server, srvMs) => {
+      const offlineWins = mine >= srvMs;
+      const [win, lose] = offlineWins ? [offline, server] : [server, offline];
+      if (!lose || !win) return win || lose;
+      return `${win}\n\n— Conflict copy (${offlineWins ? 'the version it replaced' : 'saved offline ' + stamp}) —\n${lose}`;
+    };
+    const srvSteps = new Map((state.steps || []).map((r) => [`${r.t}|${r.k}`, r]));
+    for (const st of d.steps.set) {
+      const b = base.s?.[`${st.t}|${st.k}`]; if (!b) continue;
+      const srv = srvSteps.get(`${st.t}|${st.k}`);
+      const srvNote = srv?.note ?? '', srvMs = srv?.ua ? Date.parse(srv.ua) : 0;
+      if (textHash(srvNote) !== b.n && st.note !== srvNote) { st.note = merge(st.note, srvNote, srvMs); n++; }
+      if (srv && srv.done !== b.d && st.done !== srv.done && mine < srvMs) { st.done = srv.done; st.done_at = srv.done_at; } // checkbox: the newest wins
+    }
+    const srvTickets = new Map((state.tickets || []).map((r) => [r.t, r]));
+    for (const t of d.tickets.set) {
+      const b = base.t?.[t.t]; if (!b) continue;
+      const srv = srvTickets.get(t.t);
+      const srvNote = srv?.note ?? '', srvMs = srv?.ua ? Date.parse(srv.ua) : 0;
+      if (textHash(srvNote) !== b.n && t.note !== srvNote) { t.note = merge(t.note, srvNote, srvMs); n++; }
+      if (srv && (srv.ov ?? null) !== b.o && (t.ov ?? null) !== (srv.ov ?? null) && mine < srvMs) t.ov = srv.ov ?? null; // status: the newest wins
+    }
+    return n;
+  }
+  async function withUser(token, write, fn, opId, opTime, base, info) {
     const state = await rpc('tt_state', { p_days: 400 }, token);
     if (!state?.profile) throw new HttpError(403, 'This account has not been invited.');
     const work = openWorking(contentPath);
@@ -73,6 +107,7 @@ export function createHosted({ env = process.env, contentPath, fetchImpl = fetch
       if (write) {
         const d = diff(work.db, before, extract(work.db));
         if (d && opTime) retime(d, before, opTime);
+        if (d && base && info) info.conflicts = resolve(d, state, base, opTime);
         if (d) await (opId ? rpc('tt_apply_v2', { p: d, p_op: opId }, token) : rpc('tt_apply', { p: d }, token)); // with an operation id a retried save is applied at most once
       }
       return out;
@@ -171,8 +206,11 @@ export function createHosted({ env = process.env, contentPath, fetchImpl = fetch
     // Offline changes carry the time they were made (x-op-time, ms). Accepted only if it is in the past and at most 30 days old.
     const t = Number(headers['x-op-time']), now = Date.now();
     const opTime = opId && Number.isFinite(t) && t <= now && t >= now - 30 * 86400_000 ? Math.floor(t) : null;
-    const out = await withUser(token, write, (api) => api(method === 'HEAD' ? 'GET' : method, p, u.searchParams, body || {}), opId, opTime);
-    return { status: 200, json: out };
+    let opBase = null;
+    if (opId && headers['x-op-base']) { try { opBase = JSON.parse(String(headers['x-op-base'])); } catch {} }
+    const info = { conflicts: 0 };
+    const out = await withUser(token, write, (api) => api(method === 'HEAD' ? 'GET' : method, p, u.searchParams, body || {}), opId, opTime, opBase, info);
+    return { status: 200, json: out, headers: info.conflicts ? { 'x-conflicts': String(info.conflicts) } : undefined };
   }
 
   return { handle };

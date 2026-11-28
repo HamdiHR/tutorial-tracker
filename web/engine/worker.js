@@ -7,7 +7,7 @@
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
 import { wrapDb } from './shims/node-sqlite.js';
 import { createApi } from '../../server/api.js';
-import { hydrate, extract, diff } from '../../hosted/state.js';
+import { hydrate, extract, diff, baseOf } from '../../hosted/state.js';
 
 const now = () => performance.now();
 let db = null, api = null, before = null;
@@ -30,8 +30,9 @@ function call({ method, path, query, body }) {
   const q = new URLSearchParams(query || {});
   const result = api(method, path, q, body || {});
   let d = null;
-  if (method !== 'GET' && method !== 'HEAD') { const after = extract(db); d = diff(db, before, after); before = after; }
-  return { status: 200, result, diff: d };
+  let base = null;
+  if (method !== 'GET' && method !== 'HEAD') { const after = extract(db); d = diff(db, before, after); base = baseOf(before, d); before = after; }
+  return { status: 200, result, diff: d, base };
 }
 
 self.onmessage = async (e) => {

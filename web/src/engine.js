@@ -9,7 +9,7 @@ const MAX_STARTS = 3; // per page load, so a broken engine cannot loop
 
 let state = 'idle'; // idle | loading | ready | off
 let worker = null, starts = 0, writeSeq = 0, nextId = 0, tokenProvider = null, userId = null, source = null, startP = null, snapTimer = null;
-let queue = null, failed = [], queueReady = Promise.resolve(), flushing = null, retryTimer = null; // the outbox: changes made here that the server has not confirmed yet
+let queue = null, conflicts = 0, failed = [], queueReady = Promise.resolve(), flushing = null, retryTimer = null; // the outbox: changes made here that the server has not confirmed yet
 const pending = new Map();
 const off = () => { try { return localStorage.getItem('tt.engine') === 'off' || /[?&]engine=off\b/.test(location.search); } catch { return false; } };
 
@@ -29,11 +29,11 @@ function stop(next = 'idle') {
 }
 
 const key = () => 'state:' + userId;
-const okey = () => 'outbox:' + userId, fkey = () => 'failed:' + userId;
-const notify = () => { try { window.dispatchEvent(new CustomEvent('tt-outbox', { detail: { pending: queue?.length || 0, failed: failed.length } })); } catch {} };
+const okey = () => 'outbox:' + userId, fkey = () => 'failed:' + userId, ckey = () => 'conflicts:' + userId;
+const notify = () => { try { window.dispatchEvent(new CustomEvent('tt-outbox', { detail: { pending: queue?.length || 0, failed: failed.length, conflicts } })); } catch {} };
 async function loadQueue() {
   if (!userId) { queue = []; failed = []; return; }
-  queue = (await kv.get(okey())) || []; failed = (await kv.get(fkey())) || [];
+  queue = (await kv.get(okey())) || []; failed = (await kv.get(fkey())) || []; conflicts = (await kv.get(ckey())) || 0;
   notify();
 }
 const saveQueue = () => kv.set(okey(), queue);
@@ -54,9 +54,9 @@ async function send(op) {
   try { t = await tokenProvider(); } catch { throw netErr(); }
   if (!t) throw netErr();
   let r; const sentAt = Date.now();
-  try { r = await fetch(op.url, { method: op.method, headers: { authorization: `Bearer ${t}`, 'content-type': 'application/json', 'x-op-id': op.id, 'x-op-time': String(op.ts) }, body: JSON.stringify(op.body ?? {}) }); } catch { throw netErr(); }
+  try { r = await fetch(op.url, { method: op.method, headers: { authorization: `Bearer ${t}`, 'content-type': 'application/json', 'x-op-id': op.id, 'x-op-time': String(op.ts), ...(op.base ? { 'x-op-base': JSON.stringify(op.base) } : {}) }, body: JSON.stringify(op.body ?? {}) }); } catch { throw netErr(); }
   noteServerTime(r, sentAt);
-  if (r.ok) return;
+  if (r.ok) return Number(r.headers.get('x-conflicts')) || 0;
   const data = await r.json().catch(() => ({}));
   throw Object.assign(new Error(data.error || `${r.status}`), { status: r.status });
 }
@@ -66,10 +66,10 @@ function flush() {
   return (flushing = (async () => {
     await queueReady;
     clearTimeout(retryTimer);
-    let sent = 0, dropped = false;
+    let sent = 0, dropped = false, found = 0;
     while (queue && queue.length) {
       const op = queue[0];
-      try { await send(op); }
+      try { found += (await send(op)) || 0; }
       catch (e) {
         if (e.network || !e.status || e.status >= 500 || e.status === 401 || e.status === 429) { retryTimer = setTimeout(flush, 30_000); break; } // try again later
         failed.push({ ...op, error: e.message, at: Date.now() }); dropped = true; await kv.set(fkey(), failed); // the server refused it for good: keep a record, never silently
@@ -77,6 +77,7 @@ function flush() {
       queue.shift(); sent++; writeSeq++; await saveQueue(); notify();
     }
     if (sent) snapshotSoon();
+    if (found) { conflicts += found; await kv.set(ckey(), conflicts); notify(); dropped = true; } // both versions are on the server now: show them
     if (dropped) { starts = 0; stop('idle'); start(); } // the local copy no longer matches the server: reload from it
   })().finally(() => { flushing = null; }));
 }
@@ -168,7 +169,7 @@ export const engine = {
     if (!this.canQueue(method, url)) throw netErr();
     const u = new URL(url, location.origin);
     const r = await post({ type: 'call', method, path: u.pathname, query: Object.fromEntries(u.searchParams), body }); // the local engine validates it like the server (a refusal throws here, nothing is queued)
-    queue.push({ id: opId, method, url, body, ts: Date.now() + clockOffset }); // dated by the corrected clock
+    queue.push({ id: opId, method, url, body, base: r.base || null, ts: Date.now() + clockOffset }); // dated by the corrected clock
     await saveQueue(); notify();
     if (navigator.onLine !== false) flush();
     return r.result;
@@ -176,11 +177,12 @@ export const engine = {
   flush,
   noteServerTime,
   clockOffset: () => clockOffset,
-  async clearFailed() { failed = []; await kv.del(fkey()); notify(); },
+  async clearFailed() { failed = []; conflicts = 0; await kv.del(fkey()); await kv.del(ckey()); notify(); },
+  conflictCount: () => conflicts,
   /** Throw the local copy away; it reloads from the server in the background. */
   invalidate() { if (state === 'off') return; stop('idle'); start(); },
   /** Sign-out: forget everything on this device. */
-  async wipe() { clearTimeout(snapTimer); clearTimeout(retryTimer); stop('off'); queue = []; failed = []; await kv.clear(); notify(); },
+  async wipe() { clearTimeout(snapTimer); clearTimeout(retryTimer); stop('off'); queue = []; failed = []; conflicts = 0; await kv.clear(); notify(); },
 };
 if (typeof window !== 'undefined') {
   window.__ttEngine = engine;

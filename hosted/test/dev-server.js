@@ -22,6 +22,7 @@ const server = http.createServer(async (req, res) => {
       const chunks = []; for await (const c of req) chunks.push(c);
       const body = chunks.length ? JSON.parse(Buffer.concat(chunks)) : {};
       const out = await app.handle(req.method, req.url, req.headers, body);
+      for (const [k, v] of Object.entries(out.headers || {})) res.setHeader(k, v);
       return send(out.status, out.json);
     }
     if (!serve(req, res, u.pathname, req.method, {})) { res.writeHead(404); res.end('nf'); }
