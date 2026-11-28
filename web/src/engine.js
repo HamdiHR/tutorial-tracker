@@ -4,11 +4,13 @@
 // itself and the app keeps working through the server exactly as before. Kill switch: localStorage tt.engine = "off", or ?engine=off.
 const READS = /^\/api\/(overview|tickets\/[^/]+|tickets\/[^/]+\/extras|extras|steps\/\d+\/versions|search|drift|achievements|views|plan)$/;
 const REPLAYS = /^\/api\/(steps\/\d+(\/done|\/note|\/reset|\/upstream)?|tickets\/[^/]+\/(note|status|extras)|bulk|bulk\/undo|views|plan|plan\/manual|resume|drift\/\d+)$/;
+import { textHash } from '../../hosted/texthash.js';
 import { kv } from './store.js';
 const MAX_STARTS = 3; // per page load, so a broken engine cannot loop
 
 let state = 'idle'; // idle | loading | ready | off
 let worker = null, starts = 0, writeSeq = 0, nextId = 0, tokenProvider = null, userId = null, source = null, startP = null, snapTimer = null;
+let pulling = false, lastPullFp = '', lastPullSeq = -1;
 let queue = null, conflicts = 0, failed = [], queueReady = Promise.resolve(), flushing = null, retryTimer = null; // the outbox: changes made here that the server has not confirmed yet
 const pending = new Map();
 const off = () => { try { return localStorage.getItem('tt.engine') === 'off' || /[?&]engine=off\b/.test(location.search); } catch { return false; } };
@@ -131,6 +133,7 @@ function snapshotSoon() {
   if (!userId || off()) return;
   clearTimeout(snapTimer);
   snapTimer = setTimeout(async () => {
+    snapTimer = null;
     try { const t = await tokenProvider(); if (!t) return; const r = await fetch('/api/state', { headers: { authorization: `Bearer ${t}` } }); if (r.ok) kv.set(key(), { saved: await r.json(), at: Date.now() }); } catch {}
   }, 2500);
 }
@@ -201,14 +204,45 @@ export const engine = {
     await kv.del(key()); starts = 0; stop('idle'); notify();
     return start();
   },
+  /**
+   * Look for changes made on another device: fetch the server's copy and compare it with what this engine holds.
+   * Only when nothing of ours is in flight (no waiting changes, no save in the last few seconds). Different -> reload the engine from the server and tell the screen.
+   * Resolves 'changed' | 'same' | 'skipped'.
+   */
+  async pull() {
+    if (state !== 'ready' || source !== 'server' || !userId || navigator.onLine === false || document.visibilityState === 'hidden') return 'skipped';
+    if (queue?.length || flushing || snapTimer || pulling) return 'skipped';
+    pulling = true; const seq = writeSeq;
+    try {
+      const t = await tokenProvider(); if (!t) return 'skipped';
+      const r = await fetch('/api/state', { headers: { authorization: `Bearer ${t}` } });
+      if (!r.ok) return 'skipped';
+      const saved = await r.json();
+      const fp = textHash(JSON.stringify([saved.steps, saved.tickets, saved.meta, saved.badges]));
+      if (fp === lastPullFp && seq === lastPullSeq) return 'same'; // nothing changed on the server since the last look and nothing of ours either
+      const res = await post({ type: 'same', state: saved });
+      if (seq !== writeSeq || queue?.length) return 'skipped'; // we wrote while comparing: try again later
+      lastPullFp = fp; lastPullSeq = seq;
+      kv.set(key(), { saved, at: Date.now() }); touchSync();
+      if (res.same) return 'same';
+      starts = 0; stop('idle'); await start();
+      try { window.dispatchEvent(new CustomEvent('tt-remote-update')); } catch {}
+      return 'changed';
+    } catch { return 'skipped'; } finally { pulling = false; }
+  },
   /** Throw the local copy away; it reloads from the server in the background. */
   invalidate() { if (state === 'off') return; stop('idle'); start(); },
   /** Sign-out: forget everything on this device. */
-  async wipe() { clearTimeout(snapTimer); clearTimeout(retryTimer); stop('off'); queue = []; failed = []; conflicts = 0; await kv.clear(); notify(); },
+  async wipe() { clearTimeout(snapTimer); snapTimer = null; clearTimeout(retryTimer); stop('off'); queue = []; failed = []; conflicts = 0; await kv.clear(); notify(); },
 };
 if (typeof window !== 'undefined') {
   window.__ttEngine = engine;
   // back online after starting from the device copy: reload from the server so both agree
   window.addEventListener('online', () => { flush().finally(() => { if (source === 'device') { starts = 0; engine.invalidate(); } }); });
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && queue?.length && navigator.onLine !== false) flush(); });
+  let hiddenAt = 0;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
+    if (queue?.length && navigator.onLine !== false) flush(); else if (Date.now() - hiddenAt > 15_000) engine.pull();
+  });
+  setInterval(() => engine.pull(), 90_000); // while the app stays open
 }

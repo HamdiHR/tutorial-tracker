@@ -40,6 +40,10 @@ function outboxBar(e) {
 }
 
 let chip = null;
+function remoteBar() {
+  showBar('remote', h('div', { class: 'pwa-bar', role: 'status' }, h('span', {}, 'Another device changed your data.'),
+    h('button', { class: 'btn sm primary', type: 'button', onClick: () => location.reload() }, 'Refresh')));
+}
 function chipDraw(e) {
   if (!chip) return;
   const d = e?.detail || {}; const pend = d.pending ?? engine.pending();
@@ -109,6 +113,7 @@ export function initPwa(topbar, before, force = false) {
   window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferred = e; if (!standalone()) installBtn.hidden = false; });
   window.addEventListener('appinstalled', () => { deferred = null; installBtn.hidden = true; });
   window.addEventListener('tt-outbox', outboxBar);
+  window.addEventListener('tt-remote-update', remoteBar);
   window.addEventListener('online', offlineBar);
   window.addEventListener('offline', offlineBar);
   offlineBar();
