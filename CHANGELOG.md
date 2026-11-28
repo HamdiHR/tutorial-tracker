@@ -1,0 +1,12 @@
+# Changelog
+
+## 0.40.0 (2026-11-28)
+
+### Other
+- Version management: release script, build id in the app, CI version check
+- v0.40 phase 4: Sync panel (waiting changes, Sync now, JSON export, reset device), status chip, sign-out warning
+- v0.40 phase 4: conflicts. Newest note wins, the other is kept as a Conflict copy; checkbox/status newest wins
+- v0.40 phase 4: offline changes are dated when made; clock correction from the server time
+- v0.40 phase 4 (client): save offline, upload later (outbox, rebase, operation ids)
+- v0.40 phase 4 (database): tt_ops, tt_apply_v2 (idempotent saves), updated_at, SQL tests
+
