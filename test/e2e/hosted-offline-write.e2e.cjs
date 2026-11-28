@@ -63,5 +63,18 @@ const until = (p, fn, arg, ms = 30000) => p.waitForFunction(fn, arg, { timeout: 
   await ctx.setOffline(false);
   ok('uploads again', await until(p, () => window.__ttEngine.pending() === 0, null, 30000));
   ok('server has 2 done now', (await doneCount()) === 2, String(await doneCount()));
+
+  // ---- offline work is dated when it was made, not when it uploaded
+  const recentTs = async () => (await server('GET', '/overview')).recent?.[0]?.ts;
+  const s5 = steps[4];
+  const made = Date.now() - 3 * 3600_000; // as if made 3 hours ago on a phone
+  await server('PUT', `/steps/${s5.id}/note`, { note: 'made on the train' }, { 'x-op-id': '7e57a11c-0000-4000-8000-000000000001', 'x-op-time': String(made) });
+  const ts1 = await recentTs();
+  ok('activity is dated when the change was made (about 3 h ago)', ts1 && Math.abs(Date.parse(String(ts1).replace(' ', 'T').replace(/Z?$/, 'Z')) - made) < 120_000, String(ts1));
+  const s6 = steps[5];
+  await server('PUT', `/steps/${s6.id}/note`, { note: 'from a fast clock' }, { 'x-op-id': '7e57a11c-0000-4000-8000-000000000002', 'x-op-time': String(Date.now() + 3600_000) }); // a time in the future is ignored
+  const ts2 = await recentTs();
+  ok('a time in the future is ignored (dated now)', ts2 && Math.abs(Date.parse(String(ts2).replace(' ', 'T').replace(/Z?$/, 'Z')) - Date.now()) < 120_000, String(ts2));
+  ok('the device knows its clock offset', typeof (await p.evaluate(() => window.__ttEngine.clockOffset())) === 'number');
   done(errs); await b.close();
 })().catch((e) => { console.log('FAIL', String(e.stack || e).slice(0, 900)); process.exit(1); });

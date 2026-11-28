@@ -53,7 +53,15 @@ export function createHosted({ env = process.env, contentPath, fetchImpl = fetch
   };
 
   /** Run fn(api, db, state) on this person's data; save what changed when `write`. */
-  async function withUser(token, write, fn, opId) {
+  /** An operation made offline is dated when it was made, not when it uploaded. Only rows this operation changed are re-dated. */
+  function retime(d, before, ms) {
+    const iso = new Date(ms).toISOString();
+    const was = new Map([...before.steps.values()].map((v) => [`${v.t}|${v.k}`, v.done_at]));
+    for (const st of d.steps.set) if (st.done && st.done_at && was.get(`${st.t}|${st.k}`) !== st.done_at) st.done_at = iso;
+    for (const a of d.activity || []) a.ts = iso;
+    for (const v of d.versions || []) v.ts = iso;
+  }
+  async function withUser(token, write, fn, opId, opTime) {
     const state = await rpc('tt_state', { p_days: 400 }, token);
     if (!state?.profile) throw new HttpError(403, 'This account has not been invited.');
     const work = openWorking(contentPath);
@@ -64,6 +72,7 @@ export function createHosted({ env = process.env, contentPath, fetchImpl = fetch
       const out = await fn(api, work.db, state);
       if (write) {
         const d = diff(work.db, before, extract(work.db));
+        if (d && opTime) retime(d, before, opTime);
         if (d) await (opId ? rpc('tt_apply_v2', { p: d, p_op: opId }, token) : rpc('tt_apply', { p: d }, token)); // with an operation id a retried save is applied at most once
       }
       return out;
@@ -159,7 +168,10 @@ export function createHosted({ env = process.env, contentPath, fetchImpl = fetch
     const write = method !== 'GET' && method !== 'HEAD';
     const op = String(headers['x-op-id'] || '');
     const opId = write && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(op) ? op.toLowerCase() : null;
-    const out = await withUser(token, write, (api) => api(method === 'HEAD' ? 'GET' : method, p, u.searchParams, body || {}), opId);
+    // Offline changes carry the time they were made (x-op-time, ms). Accepted only if it is in the past and at most 30 days old.
+    const t = Number(headers['x-op-time']), now = Date.now();
+    const opTime = opId && Number.isFinite(t) && t <= now && t >= now - 30 * 86400_000 ? Math.floor(t) : null;
+    const out = await withUser(token, write, (api) => api(method === 'HEAD' ? 'GET' : method, p, u.searchParams, body || {}), opId, opTime);
     return { status: 200, json: out };
   }
 

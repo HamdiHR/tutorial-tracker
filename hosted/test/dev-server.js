@@ -15,7 +15,7 @@ const fake = await startFake();
 const app = createHosted({ env: { SUPABASE_URL: fake.url, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ANON, SUPABASE_SERVICE_ROLE_KEY: SERVICE }, contentPath: path.join(ROOT, 'hosted/content.db'), version: 'dev' });
 const serve = createStatic(path.join(ROOT, 'public'), { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.wasm': 'application/wasm', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.json': 'application/json', '.ico': 'image/x-icon' });
 const server = http.createServer(async (req, res) => {
-  const send = (st, obj) => { res.writeHead(st, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
+  const send = (st, obj) => { res.writeHead(st, { 'content-type': 'application/json', 'x-server-time': String(Date.now() + (Number(process.env.E2E_SERVER_SKEW) || 0)) }); res.end(JSON.stringify(obj)); };
   try {
     const u = new URL(req.url, 'http://x');
     if (u.pathname.startsWith('/api/')) {

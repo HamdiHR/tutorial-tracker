@@ -38,14 +38,24 @@ async function loadQueue() {
 }
 const saveQueue = () => kv.set(okey(), queue);
 const REPLAY_PATH = (url) => REPLAYS.test(new URL(url, location.origin).pathname);
+// Clock correction: every server answer tells us the server's time; the difference to this device's clock dates offline changes.
+let clockOffset = 0;
+try { clockOffset = Number(localStorage.getItem('tt.clock')) || 0; } catch {}
+const noteServerTime = (r, sentAt) => {
+  const st = Number(r?.headers?.get?.('x-server-time'));
+  if (!Number.isFinite(st) || st <= 0) return;
+  clockOffset = Math.round(st - (sentAt + Date.now()) / 2); // assume the answer took half the round trip
+  try { localStorage.setItem('tt.clock', String(clockOffset)); } catch {}
+};
 const netErr = () => Object.assign(new Error('Cannot reach the server. Check your connection.'), { network: true });
 /** Send one queued change to the server, with its operation id so a retry is never applied twice. */
 async function send(op) {
   let t;
   try { t = await tokenProvider(); } catch { throw netErr(); }
   if (!t) throw netErr();
-  let r;
-  try { r = await fetch(op.url, { method: op.method, headers: { authorization: `Bearer ${t}`, 'content-type': 'application/json', 'x-op-id': op.id }, body: JSON.stringify(op.body ?? {}) }); } catch { throw netErr(); }
+  let r; const sentAt = Date.now();
+  try { r = await fetch(op.url, { method: op.method, headers: { authorization: `Bearer ${t}`, 'content-type': 'application/json', 'x-op-id': op.id, 'x-op-time': String(op.ts) }, body: JSON.stringify(op.body ?? {}) }); } catch { throw netErr(); }
+  noteServerTime(r, sentAt);
   if (r.ok) return;
   const data = await r.json().catch(() => ({}));
   throw Object.assign(new Error(data.error || `${r.status}`), { status: r.status });
@@ -158,12 +168,14 @@ export const engine = {
     if (!this.canQueue(method, url)) throw netErr();
     const u = new URL(url, location.origin);
     const r = await post({ type: 'call', method, path: u.pathname, query: Object.fromEntries(u.searchParams), body }); // the local engine validates it like the server (a refusal throws here, nothing is queued)
-    queue.push({ id: opId, method, url, body, ts: Date.now() });
+    queue.push({ id: opId, method, url, body, ts: Date.now() + clockOffset }); // dated by the corrected clock
     await saveQueue(); notify();
     if (navigator.onLine !== false) flush();
     return r.result;
   },
   flush,
+  noteServerTime,
+  clockOffset: () => clockOffset,
   async clearFailed() { failed = []; await kv.del(fkey()); notify(); },
   /** Throw the local copy away; it reloads from the server in the background. */
   invalidate() { if (state === 'off') return; stop('idle'); start(); },

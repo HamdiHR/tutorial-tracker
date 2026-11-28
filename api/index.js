@@ -23,6 +23,7 @@ export default async function handler(req, res) {
     res.statusCode = status;
     res.setHeader('content-type', 'application/json; charset=utf-8');
     res.setHeader('cache-control', 'no-store');
+    res.setHeader('x-server-time', String(Date.now())); // lets a device with a wrong clock correct its offline timestamps
     res.setHeader('x-content-type-options', 'nosniff');
     res.end(JSON.stringify(obj));
   };

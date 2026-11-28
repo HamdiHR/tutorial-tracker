@@ -34,12 +34,13 @@ async function serverReq(method, url, body, opId) {
     init.headers['content-type'] = 'application/json';
     init.body = JSON.stringify(body ?? {});
   }
-  let r;
+  let r; const sentAt = Date.now();
   try {
     r = await fetch(url, init);
   } catch {
     throw Object.assign(new Error(tokenProvider ? 'Cannot reach the server. Check your connection.' : 'Cannot reach the local server. Is Tutorial Tracker still running?'), { network: true });
   }
+  if (tokenProvider) engine.noteServerTime(r, sentAt);
   const data = await r.json().catch(() => ({}));
   if (r.status === 401 && onUnauthorized) { onUnauthorized(); throw new Error(data.error || 'Please sign in again.'); }
   if (!r.ok) throw new Error(data.error || `${r.status} ${r.statusText}`);
