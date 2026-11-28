@@ -127,6 +127,7 @@ async function run1() {
     // rebase: the loaded copy does not know about changes still waiting to upload, so apply them on top (like git rebase)
     for (const op of queue || []) { const u = new URL(op.url, location.origin); try { await post({ type: 'call', method: op.method, path: u.pathname, query: Object.fromEntries(u.searchParams), body: op.body }); } catch {} }
     state = 'ready';
+    try { navigator.storage?.persist?.(); } catch {} // ask the browser not to clear this device's copy (and waiting changes) when space runs low
     if (queue?.length && navigator.onLine !== false) flush();
   } catch { stop('idle'); state = starts >= MAX_STARTS ? 'off' : 'idle'; }
 }
