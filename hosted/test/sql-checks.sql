@@ -69,3 +69,7 @@ INSERT INTO tt_ops(user_id, op_id, applied_at) VALUES ('00000000-0000-0000-0000-
 SET ROLE authenticated; SET request.jwt.claim.sub = '00000000-0000-0000-0000-000000000002';
 DO $$ BEGIN PERFORM tt_apply_v2('{}', '55555555-5555-5555-5555-555555555555');
   IF EXISTS (SELECT 1 FROM tt_ops WHERE op_id='44444444-4444-4444-4444-444444444444') THEN RAISE EXCEPTION 'FAIL old operation not purged'; END IF; RAISE NOTICE 'PASS operations older than 30 days are purged'; END $$;
+DO $$ BEGIN
+  IF (tt_state()->'steps'->0->>'ua') IS NULL THEN RAISE EXCEPTION 'FAIL tt_state has no ua'; END IF;
+  RAISE NOTICE 'PASS tt_state returns the last-changed time of steps';
+END $$;

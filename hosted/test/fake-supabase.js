@@ -80,6 +80,7 @@ export function startFake() {
           const fn = u.pathname.split('/').pop();
           if (fn === 'tt_state') return out(200, JSON.parse(asUser(m[1], `SELECT public.tt_state(${Number(body.p_days) | 0});`)));
           if (fn === 'tt_apply') return out(200, JSON.parse(asUser(m[1], `SELECT public.tt_apply(:'a'::jsonb);`, { a: JSON.stringify(body.p) })));
+          if (fn === 'tt_apply_v2') return out(200, JSON.parse(asUser(m[1], `SELECT public.tt_apply_v2(:'a'::jsonb, :'o'::uuid);`, { a: JSON.stringify(body.p), o: String(body.p_op) })));
           return out(404, {});
         }
         if (u.pathname.startsWith('/rest/v1/')) {

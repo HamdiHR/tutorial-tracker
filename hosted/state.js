@@ -58,6 +58,24 @@ export function hydrate(db, st) {
 
 const j = (o) => JSON.stringify(o);
 
+/** Short fingerprint of a text (cyrb53). Used to tell "the server's text is the one this device started from" without sending the text. */
+export function textHash(str) {
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0, ch; i < str.length; i++) { ch = str.charCodeAt(i); h1 = Math.imul(h1 ^ ch, 2654435761); h2 = Math.imul(h2 ^ ch, 1597334677); }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+}
+
+/** The values a change started from (before it was applied), for the rows it touched. The server compares them with its own current values to detect that someone else changed the same thing. */
+export function baseOf(before, d) {
+  if (!d) return null;
+  const base = { s: {}, t: {} };
+  for (const st of d.steps.set) { const b = before.steps.get(`${st.t}|${st.k}`); base.s[`${st.t}|${st.k}`] = { n: textHash(b?.note ?? ''), d: !!b?.done }; }
+  for (const t of d.tickets.set) { const b = before.tickets.get(t.t); base.t[t.t] = { n: textHash(b?.note ?? ''), o: b?.ov ?? null }; }
+  return base;
+}
+
 /** Everything about the person that differs from the pristine tutorial, as plain maps. */
 export function extract(db) {
   const steps = new Map();

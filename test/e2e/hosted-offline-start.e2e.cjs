@@ -1,6 +1,6 @@
 // Offline start (v0.40 P3-4/P3-5): after one online visit the app opens with NO network, from the device copy of the person's data
 // (IndexedDB) and the engine files cached by the service worker. Back online it reloads from the server; sign-out wipes the device copy.
-// Offline writes are NOT supported yet (phase 4: sync); this test only covers reading.
+// This test only covers reading; offline saving is in hosted-offline-write.e2e.cjs.
 const { chromium, ok, U, done } = require('./helpers.cjs');
 const until = (p, fn, arg, ms = 30000) => p.waitForFunction(fn, arg, { timeout: ms }).then(() => true, () => false);
 const kvKeys = (p) => p.evaluate(() => new Promise((res) => { const r = indexedDB.open('tt-device', 1); r.onerror = () => res(null); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => { const tx = r.result.transaction('kv'); const k = tx.objectStore('kv').getAllKeys(); k.onsuccess = () => res(k.result); }; }));

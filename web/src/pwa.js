@@ -2,6 +2,7 @@
 // tells you when a new version is ready (and only reloads when you press the button), and shows an offline notice.
 import { h } from './dom.js';
 import { S } from './state.js';
+import { engine } from './engine.js';
 
 const swOk = 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1');
 const standalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
@@ -27,8 +28,19 @@ function updateBar(reg) {
     h('button', { class: 'icon-btn sm', type: 'button', 'aria-label': 'Later', onClick: () => showBar('update', null) }, '✕')));
 }
 
+function outboxBar(e) {
+  const { pending = 0, failed = 0, conflicts = 0 } = e?.detail || {};
+  let node = null;
+  if (conflicts) node = h('div', { class: 'pwa-bar off', role: 'status' }, h('span', {}, `${conflicts} note${conflicts > 1 ? 's were' : ' was'} changed on two devices. The newest version is kept and the other is saved below it as a "Conflict copy". Please review.`),
+    h('button', { class: 'btn sm', type: 'button', onClick: () => engine.clearFailed() }, 'OK'));
+  else if (failed) node = h('div', { class: 'pwa-bar off', role: 'status' }, h('span', {}, `${failed} change${failed > 1 ? 's' : ''} could not be saved on the server, so this device now shows the server's version.`),
+    h('button', { class: 'btn sm', type: 'button', onClick: () => engine.clearFailed() }, 'OK'));
+  else if (pending) node = h('div', { class: 'pwa-bar', role: 'status' }, h('span', {}, `${pending} change${pending > 1 ? 's' : ''} saved on this device, waiting to upload.`));
+  showBar('outbox', node);
+}
+
 function offlineBar() {
-  showBar('offline', navigator.onLine ? null : h('div', { class: 'pwa-bar off', role: 'status' }, h('span', {}, 'You are offline. You can open the app, but your data loads and saves only when you are back online.')));
+  showBar('offline', navigator.onLine ? null : h('div', { class: 'pwa-bar off', role: 'status' }, h('span', {}, 'You are offline. Changes you make are saved on this device and upload when you are back online.')));
 }
 
 // First visit: the engine files download in the background. Say so, then confirm when the app can open offline.
@@ -85,6 +97,7 @@ export function initPwa(topbar, before, force = false) {
   topbar?.insertBefore(installBtn, before || null);
   window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferred = e; if (!standalone()) installBtn.hidden = false; });
   window.addEventListener('appinstalled', () => { deferred = null; installBtn.hidden = true; });
+  window.addEventListener('tt-outbox', outboxBar);
   window.addEventListener('online', offlineBar);
   window.addEventListener('offline', offlineBar);
   offlineBar();

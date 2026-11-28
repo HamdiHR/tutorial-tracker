@@ -80,7 +80,7 @@ $('#scrim').addEventListener('click', () => document.body.classList.remove('nav-
 
 function offlineScreen(message) {
   document.body.append(h('div', { class: 'auth' }, h('div', { class: 'auth-card' }, h('h1', {}, 'Cannot reach the server'),
-    h('p', { class: 'muted' }, message), h('p', { class: 'muted small' }, 'The app opens offline, but your data loads and saves only when you are connected. Offline editing is coming next.'),
+    h('p', { class: 'muted' }, message), h('p', { class: 'muted small' }, 'The app opens offline when this device already has your data. Open it once while online and wait a few seconds, and it will work offline after that.'),
     h('button', { class: 'btn primary', onClick: () => location.reload() }, 'Try again'))));
   document.body.classList.add('auth-open');
 }
