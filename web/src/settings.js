@@ -60,7 +60,7 @@ export async function settingsView(root) {
       h('p', { class: 'muted small' }, 'Database: ', h('code', {}, info.dbPath)),
       h('p', { class: 'muted small' }, `Automatic backups (last ${info.backups.length}, taken at each start and before each import) are in the “backups” folder next to it.`),
       info.backups.length ? h('p', { class: 'muted small' }, info.backups.join(' · ')) : null,
-      h('p', { class: 'muted small' }, `Version ${info.version} · Node ${info.node}`))
+      h('p', { class: 'muted small' }, `Version ${info.version} · this page was built from ${__APP_VERSION__} (${__APP_BUILD__})${info.node ? ' · Node ' + info.node : ''}`))
   ];
   root.replaceChildren(h('div', { class: 'dash narrow' },
     h('h1', { class: 'page-title' }, 'Settings'),

@@ -9,7 +9,7 @@ import { openWorking, hydrate, extract, diff, textHash } from './state.js';
 
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/;
 
-export function createHosted({ env = process.env, contentPath, fetchImpl = fetch, version = '0.0.0' }) {
+export function createHosted({ env = process.env, contentPath, fetchImpl = fetch, version = '0.0.0', build = '' }) {
   const base = (env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
   const anon = env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || env.SUPABASE_PUBLISHABLE_KEY || env.NEXT_PUBLIC_SUPABASE_ANON_KEY || env.SUPABASE_ANON_KEY || '';
   const service = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '';
@@ -121,7 +121,7 @@ export function createHosted({ env = process.env, contentPath, fetchImpl = fetch
     const p = u.pathname.replace(/\/+$/, '') || '/';
     if (p === '/api/health') return { status: 200, json: { ok: true, hosted: true } };
     configured();
-    if (p === '/api/config' && method === 'GET') return { status: 200, json: { hosted: true, supabaseUrl: base, anonKey: anon, version } };
+    if (p === '/api/config' && method === 'GET') return { status: 200, json: { hosted: true, supabaseUrl: base, anonKey: anon, version, build } };
 
     const token = /^Bearer (.+)$/i.exec(String(headers.authorization || headers.Authorization || ''))?.[1];
     if (!token) throw new HttpError(401, 'Please sign in.');
@@ -196,7 +196,7 @@ export function createHosted({ env = process.env, contentPath, fetchImpl = fetch
       if (!st?.profile) throw new HttpError(403, 'This account has not been invited.');
       return { status: 200, json: st };
     }
-    if (p === '/api/info') return { status: 200, json: await withUser(token, false, (api) => ({ version, hosted: true, sprints: api('GET', '/api/overview', new URLSearchParams(), {}).sprints.map((s) => ({ id: s.id, title: s.title })) })) };
+    if (p === '/api/info') return { status: 200, json: await withUser(token, false, (api) => ({ version, build, hosted: true, sprints: api('GET', '/api/overview', new URLSearchParams(), {}).sprints.map((s) => ({ id: s.id, title: s.title })) })) };
     if (/^\/api\/(import|export)/.test(p)) throw new HttpError(404, 'Not available in the hosted version.');
     if (!p.startsWith('/api/')) throw new HttpError(404, 'Not found');
 

@@ -7,7 +7,7 @@ import { createHosted, HttpError } from '../hosted/handler.js';
 if (process.env.APP_TZ) process.env.TZ = process.env.APP_TZ; // day boundaries for streaks follow your time zone
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(fs.readFileSync(path.join(here, '../package.json'), 'utf8'));
-const app = createHosted({ env: process.env, contentPath: path.join(here, '../hosted/content.db'), version: pkg.version });
+const app = createHosted({ env: process.env, contentPath: path.join(here, '../hosted/content.db'), version: pkg.version, build: (process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 7) });
 
 async function readJson(req) {
   if (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) return req.body;

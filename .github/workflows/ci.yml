@@ -22,10 +22,14 @@ jobs:
       PGPASSWORD: postgres
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: npm install
+      - name: Version check (git and the live app must agree)
+        run: node scripts/check-version.cjs ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
       - run: npm run build
       - run: npm run build:content
       - run: npm run build:engine
