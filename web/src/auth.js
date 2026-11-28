@@ -48,8 +48,8 @@ export async function getToken() {
   return refreshing;
 }
 
-export function signOut() {
-  const n = engine.pending();
+export async function signOut() {
+  const n = await engine.pendingAny();
   if (n > 0 && !confirm(`${n} change${n > 1 ? 's are' : ' is'} still waiting to upload and will be lost if you sign out now. Sign out anyway?`)) return;
   const t = session?.access_token;
   save(null);

@@ -10,6 +10,8 @@ const MAX_STARTS = 3; // per page load, so a broken engine cannot loop
 
 let state = 'idle'; // idle | loading | ready | off
 let worker = null, starts = 0, writeSeq = 0, nextId = 0, tokenProvider = null, userId = null, source = null, startP = null, snapTimer = null;
+// Only one tab per person owns the engine and the outbox (Web Locks); other tabs use the server directly and take over if the owner closes.
+let isLeader = true, bc = null, attachP = null;
 let pulling = false, lastPullFp = '', lastPullSeq = -1;
 let queue = null, conflicts = 0, failed = [], queueReady = Promise.resolve(), flushing = null, retryTimer = null; // the outbox: changes made here that the server has not confirmed yet
 const pending = new Map();
@@ -108,6 +110,7 @@ function start() {
   return (startP = run1().finally(() => { startP = null; }));
 }
 async function run1() {
+  if (!isLeader) return;
   if (state !== 'idle' || !tokenProvider || off() || typeof Worker === 'undefined') { if (off()) state = 'off'; return; }
   if (starts >= MAX_STARTS) { state = 'off'; return; }
   starts++; state = 'loading'; source = null;
@@ -129,6 +132,29 @@ async function run1() {
 }
 
 // After writes, refresh the device copy a little later (one fetch, however many writes), so an offline start is not far behind.
+/** Web Locks election: the first tab becomes the leader at once; the others wait in line and take over when it closes. */
+function elect() {
+  isLeader = true;
+  if (typeof navigator === 'undefined' || !navigator.locks || !userId) return Promise.resolve(true);
+  const name = 'tt-engine:' + userId;
+  try {
+    bc = new BroadcastChannel(name);
+    bc.onmessage = (e) => { if (isLeader && e.data === 'wrote') { clearTimeout(bc._t); bc._t = setTimeout(() => engine.pull(), 1500); } }; // another tab saved something: look at the server soon
+  } catch {}
+  const hold = () => new Promise(() => {}); // held until this tab closes
+  return new Promise((res) => {
+    // A reloaded page may still see its previous self holding the lock for a moment: wait a little before concluding another tab owns it.
+    const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 2000);
+    navigator.locks.request(name, { signal: ac.signal }, () => { clearTimeout(t); res(true); return hold(); }).catch(() => {
+      isLeader = false; res(false);
+      navigator.locks.request(name, async () => { // waits for the leader to go away
+        isLeader = true; queueReady = loadQueue(); starts = 0; state = 'idle'; await start();
+        return hold();
+      });
+    });
+  });
+}
+
 function snapshotSoon() {
   if (!userId || off()) return;
   clearTimeout(snapTimer);
@@ -140,10 +166,18 @@ function snapshotSoon() {
 
 export const engine = {
   /** Called once the person is signed in (hosted mode). Starts loading in the background; the app does not wait. */
-  attach(provider, uid) { tokenProvider = provider; userId = uid || null; queueReady = loadQueue(); return start(); }, // resolves when the first start attempt is over
+  attach(provider, uid) {
+    tokenProvider = provider; userId = uid || null;
+    const first = elect();
+    queueReady = first.then((lead) => (lead ? loadQueue() : (queue = [], failed = [], conflicts = 0, undefined)));
+    return (attachP = first.then((lead) => (lead ? start() : undefined))); // resolves when the first start attempt is over
+  },
+  role: () => (isLeader ? 'leader' : 'follower'),
+  /** Changes waiting in ANY tab of this browser (the outbox is shared storage): used before sign-out. */
+  async pendingAny() { return Math.max(queue?.length || 0, ((await kv.get(okey())) || []).length); },
   status: () => state,
   /** Resolves when the current start attempt is over (immediately if none is running). */
-  settled: () => startP || Promise.resolve(),
+  settled: () => (attachP || Promise.resolve()).then(() => startP || undefined),
   /** 'server' | 'device' (started from this device's copy: you are offline or the server is down) | null */
   source: () => source,
   /** Answer a GET locally, or return undefined when the server should answer. */
@@ -157,6 +191,7 @@ export const engine = {
   /** After a write succeeded on the server: apply it here too, or reload from the server if it cannot be applied. */
   wrote(method, url, body) {
     writeSeq++; snapshotSoon();
+    if (!isLeader) { try { bc?.postMessage('wrote'); } catch {} return; }
     if (state === 'off' || state === 'idle') return;
     if (state === 'loading') return; // the loading copy notices writeSeq and restarts
     const u = new URL(url, location.origin);
