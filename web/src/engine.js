@@ -39,6 +39,9 @@ async function loadQueue() {
 const saveQueue = () => kv.set(okey(), queue);
 const REPLAY_PATH = (url) => REPLAYS.test(new URL(url, location.origin).pathname);
 // Clock correction: every server answer tells us the server's time; the difference to this device's clock dates offline changes.
+let lastSync = 0;
+try { lastSync = Number(localStorage.getItem('tt.lastsync')) || 0; } catch {}
+const touchSync = () => { lastSync = Date.now(); try { localStorage.setItem('tt.lastsync', String(lastSync)); } catch {} };
 let clockOffset = 0;
 try { clockOffset = Number(localStorage.getItem('tt.clock')) || 0; } catch {}
 const noteServerTime = (r, sentAt) => {
@@ -76,7 +79,7 @@ function flush() {
       }
       queue.shift(); sent++; writeSeq++; await saveQueue(); notify();
     }
-    if (sent) snapshotSoon();
+    if (sent) { snapshotSoon(); touchSync(); notify(); }
     if (found) { conflicts += found; await kv.set(ckey(), conflicts); notify(); dropped = true; } // both versions are on the server now: show them
     if (dropped) { starts = 0; stop('idle'); start(); } // the local copy no longer matches the server: reload from it
   })().finally(() => { flushing = null; }));
@@ -88,7 +91,7 @@ async function loadState() {
     const t = await tokenProvider();
     if (!t) throw new Error('no session');
     const r = await fetch('/api/state', { headers: { authorization: `Bearer ${t}` } });
-    if (r.ok) { const saved = await r.json(); source = 'server'; if (userId) kv.set(key(), { saved, at: Date.now() }); return saved; }
+    if (r.ok) { const saved = await r.json(); source = 'server'; touchSync(); if (userId) kv.set(key(), { saved, at: Date.now() }); return saved; }
     if (r.status === 401 || r.status === 403) { if (userId) kv.del(key()); throw new Error('state ' + r.status); } // not allowed: no device copy either
     net = new Error('state ' + r.status); // 5xx (for example the database is paused): the device copy may be used
   } catch (e) { if (e.message && /^state 40[13]$/.test(e.message)) throw e; net = e; }
@@ -179,6 +182,25 @@ export const engine = {
   clockOffset: () => clockOffset,
   async clearFailed() { failed = []; conflicts = 0; await kv.del(fkey()); await kv.del(ckey()); notify(); },
   conflictCount: () => conflicts,
+  lastSync: () => lastSync,
+  /** What is waiting to upload, oldest first (for the Sync panel). */
+  pendingList: () => (queue || []).map((o) => ({ id: o.id, method: o.method, path: new URL(o.url, location.origin).pathname, at: o.ts })),
+  failedList: () => failed.map((o) => ({ method: o.method, path: new URL(o.url, location.origin).pathname, at: o.at, error: o.error })),
+  /** Everything this person has, as one object: the server's copy (or this device's when offline) plus changes still waiting. */
+  async exportData() {
+    let saved = null, from = 'server';
+    try { const t = await tokenProvider(); const r = await fetch('/api/state', { headers: { authorization: `Bearer ${t}` } }); if (r.ok) saved = await r.json(); } catch {}
+    if (!saved) { saved = (await kv.get(key()))?.saved || null; from = 'this device'; }
+    if (!saved) throw new Error('Nothing to export yet. Connect once and try again.');
+    return { app: 'Tutorial Tracker', exported_at: new Date().toISOString(), from, state: saved, waiting_changes: (queue || []).map((o) => ({ method: o.method, url: o.url, body: o.body, made_at: new Date(o.ts).toISOString() })) };
+  },
+  /** Re-download this device's copy from the server. Changes still waiting are lost unless `keep`. */
+  async resetDevice(keep = true) {
+    await queueReady;
+    if (!keep) { queue = []; await saveQueue(); }
+    await kv.del(key()); starts = 0; stop('idle'); notify();
+    return start();
+  },
   /** Throw the local copy away; it reloads from the server in the background. */
   invalidate() { if (state === 'off') return; stop('idle'); start(); },
   /** Sign-out: forget everything on this device. */

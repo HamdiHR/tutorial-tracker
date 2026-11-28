@@ -39,6 +39,14 @@ function outboxBar(e) {
   showBar('outbox', node);
 }
 
+let chip = null;
+function chipDraw(e) {
+  if (!chip) return;
+  const d = e?.detail || {}; const pend = d.pending ?? engine.pending();
+  const off = navigator.onLine === false, attn = (d.failed ?? engine.failedCount()) || (d.conflicts ?? engine.conflictCount());
+  chip.hidden = !(off || pend || attn);
+  chip.textContent = attn ? '⚠ Review sync' : off ? `Offline${pend ? ` · ${pend} waiting` : ''}` : `Syncing · ${pend}`;
+}
 function offlineBar() {
   showBar('offline', navigator.onLine ? null : h('div', { class: 'pwa-bar off', role: 'status' }, h('span', {}, 'You are offline. Changes you make are saved on this device and upload when you are back online.')));
 }
@@ -95,6 +103,9 @@ export function initPwa(topbar, before, force = false) {
     deferred = null; installBtn.hidden = true;
   } }, '⤓ Install app');
   topbar?.insertBefore(installBtn, before || null);
+  chip = h('button', { id: 'sync-chip', class: 'btn sm', type: 'button', hidden: true, title: 'Open sync and offline settings', onClick: () => { location.hash = '#/settings'; } });
+  topbar?.insertBefore(chip, installBtn);
+  window.addEventListener('tt-outbox', chipDraw); window.addEventListener('online', chipDraw); window.addEventListener('offline', chipDraw); chipDraw();
   window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferred = e; if (!standalone()) installBtn.hidden = false; });
   window.addEventListener('appinstalled', () => { deferred = null; installBtn.hidden = true; });
   window.addEventListener('tt-outbox', outboxBar);
