@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.40.1 (2026-11-28)
+
+### Other
+- v0.40 phase 4: pull. Notice changes made on another device while the app is open, offer a Refresh
+- v0.40 phase 4: Sync panel (waiting changes, Sync now, JSON export, reset device), status chip, sign-out warning
+
 ## 0.40.0 (2026-11-28)
 
 ### Other
