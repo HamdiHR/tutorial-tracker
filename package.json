@@ -9,6 +9,8 @@
   },
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "release": "node scripts/release.cjs",
+    "check:version": "node scripts/check-version.cjs",
     "pretest": "node -e \"require('fs').existsSync('public/index.html')||require('child_process').execSync('node scripts/build.cjs',{stdio:'inherit'})\"",
     "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.js\"",
     "build": "node scripts/build.cjs",
