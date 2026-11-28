@@ -49,6 +49,8 @@ export async function getToken() {
 }
 
 export function signOut() {
+  const n = engine.pending();
+  if (n > 0 && !confirm(`${n} change${n > 1 ? 's are' : ' is'} still waiting to upload and will be lost if you sign out now. Sign out anyway?`)) return;
   const t = session?.access_token;
   save(null);
   try { localStorage.removeItem('tt.me'); } catch {}
